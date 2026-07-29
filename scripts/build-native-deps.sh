@@ -94,11 +94,20 @@ echo "GGML built ✓"
 echo ""
 echo "--- Step 2/3: Building qwen3-tts-cpp ---"
 cd "$PROJECT_ROOT/qwen3-tts-cpp"
+
+# Patch: remove -march=native from CMakeLists.txt — this flag is invalid
+# for NDK cross-compilation (the compiler cannot detect host CPU arch).
+# qwen3-tts-cpp appends -march=native to CMAKE_CXX_FLAGS_RELEASE at line 14.
+sed -i 's/-march=native//' CMakeLists.txt
+
+echo "  Patched CMakeLists.txt (removed -march=native)"
+
+grep 'march' CMakeLists.txt || echo "  (no march flags remaining)"
+
 mkdir -p build
 "${CMAKE}" -S . -B build \
     "${CMAKE_ARGS[@]}" \
-    -DQWEN3_TTS_TIMING=OFF -DQWEN3_TTS_COREML=OFF \
-    -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG"
+    -DQWEN3_TTS_TIMING=OFF -DQWEN3_TTS_COREML=OFF
 # Build the shared lib (includes static deps automatically)
 "${CMAKE}" --build build --target qwen3tts_shared -j "${JOBS}"
 echo "qwen3-tts-cpp built ✓"
