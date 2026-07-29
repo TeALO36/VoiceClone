@@ -84,24 +84,28 @@ message(STATUS "qwen3-tts-cpp built successfully at ${QWEN3_BUILD_DIR}")
 # ============================================================
 set(OV_CPP_DIR "${PROJECT_ROOT}/omnivoice-cpp")
 set(OV_BUILD_DIR "${CMAKE_BINARY_DIR}/omnivoice")
+set(OMNIVOICE_AVAILABLE OFF CACHE BOOL "OmniVoice engine available")
 
-if(NOT EXISTS "${OV_BUILD_DIR}/CMakeCache.txt")
-    execute_process(
-        COMMAND ${CMAKE_COMMAND}
-            -S ${OV_CPP_DIR}
-            -B ${OV_BUILD_DIR}
-            -DCMAKE_BUILD_TYPE=Release
-            -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
-            -DANDROID_ABI=${ANDROID_ABI}
-            -DANDROID_PLATFORM=${ANDROID_PLATFORM}
-            -DANDROID_NDK=${ANDROID_NDK}
-        RESULT_VARIABLE OV_CFG_RESULT
-    )
-    if(NOT OV_CFG_RESULT EQUAL 0)
-        message(WARNING "OmniVoice CMake configure failed — skipping (will use Qwen3 only)")
-        set(OMNIVOICE_AVAILABLE OFF)
+if(EXISTS "${OV_CPP_DIR}/CMakeLists.txt")
+    if(NOT EXISTS "${OV_BUILD_DIR}/CMakeCache.txt")
+        execute_process(
+            COMMAND ${CMAKE_COMMAND}
+                -S ${OV_CPP_DIR}
+                -B ${OV_BUILD_DIR}
+                -DCMAKE_BUILD_TYPE=Release
+                -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
+                -DANDROID_ABI=${ANDROID_ABI}
+                -DANDROID_PLATFORM=${ANDROID_PLATFORM}
+                -DANDROID_NDK=${ANDROID_NDK}
+            RESULT_VARIABLE OV_CFG_RESULT
+        )
+        if(NOT OV_CFG_RESULT EQUAL 0)
+            message(WARNING "OmniVoice CMake configure failed — Qwen3 only mode")
+        else()
+            set(OMNIVOICE_AVAILABLE ON CACHE BOOL "OmniVoice engine available" FORCE)
+        endif()
     else()
-        set(OMNIVOICE_AVAILABLE ON)
+        set(OMNIVOICE_AVAILABLE ON CACHE BOOL "OmniVoice engine available" FORCE)
     endif()
 endif()
 
@@ -111,8 +115,8 @@ if(OMNIVOICE_AVAILABLE)
         RESULT_VARIABLE OV_BUILD_RESULT
     )
     if(NOT OV_BUILD_RESULT EQUAL 0)
-        message(WARNING "OmniVoice build failed — skipping")
-        set(OMNIVOICE_AVAILABLE OFF)
+        message(WARNING "OmniVoice build failed — Qwen3 only mode")
+        set(OMNIVOICE_AVAILABLE OFF CACHE BOOL "OmniVoice engine available" FORCE)
     else()
         message(STATUS "OmniVoice built successfully")
     endif()

@@ -20,7 +20,7 @@ export function AudioPlayer({ result, label = 'Écouter' }: AudioPlayerProps) {
   const [isLoading, setIsLoading] = useState(false);
   const soundRef = useRef<Audio.Sound | null>(null);
 
-  const float32ToWavBase64 = useCallback((samples: Float32Array, sampleRate: number): string => {
+  const float32ToWavBase64 = useCallback((samples: number[], sampleRate: number): string => {
     const numChannels = 1;
     const bitsPerSample = 16;
     const byteRate = sampleRate * numChannels * bitsPerSample / 8;

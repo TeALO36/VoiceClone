@@ -1,10 +1,10 @@
 /**
- * Result from Qwen3-TTS inference.
+ * Result from Qwen3-TTS/OmniVoice inference.
  * Contains raw PCM audio samples ready for playback.
  */
 export interface Qwen3TtsResult {
-  /** Raw PCM audio samples as Float32Array */
-  samples: Float32Array;
+  /** Raw PCM audio samples as number[] (float32 values, range [-1, 1]) */
+  samples: number[];
   /** Sample rate in Hz (typically 24000) */
   sampleRate: number;
   /** Duration in seconds */
