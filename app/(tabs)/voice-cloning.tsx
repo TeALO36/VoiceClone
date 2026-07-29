@@ -1,11 +1,12 @@
-import { ScrollView, Text, View, Pressable, Alert, ActivityIndicator, TextInput, FlatList } from 'react-native';
+import { ScrollView, Text, View, Pressable, Alert, ActivityIndicator, TextInput, FlatList, Platform } from 'react-native';
 import { ScreenContainer } from '@/components/screen-container';
 import { useTTS } from '@/lib/context/tts-context';
 import { useColors } from '@/hooks/use-colors';
 import { AudioPlayer } from '@/components/audio-player';
 import * as Haptics from 'expo-haptics';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import * as DocumentPicker from 'expo-document-picker';
+import { Audio } from 'expo-av';
 import { getSupportedLanguages } from '@/lib/services/local-tts';
 import type { Qwen3TtsResult } from '@/modules/expo-qwen3-tts';
 
@@ -14,8 +15,68 @@ const LANGUAGES = getSupportedLanguages();
 interface PickedFile {
   name: string;
   uri: string;
+  playUri: string;
   size: number;
   mimeType: string;
+}
+
+function ReferenceAudioPlayer({ uri, label }: { uri: string; label: string }) {
+  const colors = useColors();
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const soundRef = useRef<Audio.Sound | null>(null);
+
+  const handlePlay = async () => {
+    if (isPlaying && soundRef.current) {
+      await soundRef.current.stopAsync();
+      await soundRef.current.unloadAsync();
+      soundRef.current = null;
+      setIsPlaying(false);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const { sound } = await Audio.Sound.createAsync(
+        { uri },
+        { shouldPlay: true },
+        (status) => {
+          if (status.isLoaded && status.didJustFinish) {
+            setIsPlaying(false);
+          }
+        }
+      );
+      soundRef.current = sound;
+      setIsPlaying(true);
+    } catch (e) {
+      console.error('Failed to play reference audio:', e);
+      Alert.alert('Erreur', 'Impossible de lire cet échantillon audio');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <Pressable
+      onPress={handlePlay}
+      disabled={isLoading}
+      style={({ pressed }) => [
+        {
+          backgroundColor: isLoading ? colors.muted : isPlaying ? colors.error : colors.primary,
+          opacity: pressed ? 0.9 : 1,
+        },
+      ]}
+      className="rounded-xl p-3 flex-row items-center justify-center mt-3"
+    >
+      {isLoading ? (
+        <ActivityIndicator color="white" size="small" style={{ marginRight: 8 }} />
+      ) : (
+        <Text className="text-white font-semibold text-sm">
+          {isPlaying ? '⏹ Arrêter la lecture' : '▶ Écouter l\'échantillon'}
+        </Text>
+      )}
+    </Pressable>
+  );
 }
 
 export default function VoiceCloningScreen() {
@@ -42,9 +103,33 @@ export default function VoiceCloningScreen() {
       if (result.canceled || !result.assets || result.assets.length === 0) return;
 
       const asset = result.assets[0];
+      let playUri = asset.uri;
+
+      if (Platform.OS === 'web') {
+        const rawFile = (asset as any).file;
+        if (rawFile instanceof File || rawFile instanceof Blob) {
+          playUri = URL.createObjectURL(rawFile);
+        } else if (asset.uri && !asset.uri.startsWith('blob:') && !asset.uri.startsWith('data:')) {
+          try {
+            const resp = await fetch(asset.uri);
+            const blob = await resp.blob();
+            playUri = URL.createObjectURL(blob);
+          } catch (e) {
+            console.warn('Could not create Blob URL from asset.uri:', e);
+          }
+        }
+      }
+
+      if (selectedFile?.playUri && selectedFile.playUri.startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(selectedFile.playUri);
+        } catch (_) {}
+      }
+
       setSelectedFile({
         name: asset.name,
         uri: asset.uri,
+        playUri: playUri || asset.uri,
         size: asset.size ?? 0,
         mimeType: asset.mimeType ?? 'audio/wav',
       });
@@ -54,6 +139,17 @@ export default function VoiceCloningScreen() {
       console.error('Error picking file:', error);
       Alert.alert('Erreur', 'Impossible de sélectionner le fichier');
     }
+  };
+
+  const handleRemoveFile = () => {
+    if (selectedFile?.playUri && selectedFile.playUri.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(selectedFile.playUri);
+      } catch (_) {}
+    }
+    setSelectedFile(null);
+    setIsReady(false);
+    setCloningResult(null);
   };
 
   const handleCloneVoice = async () => {
@@ -82,7 +178,6 @@ export default function VoiceCloningScreen() {
         return;
       }
 
-      // Qwen3-TTS zero-shot voice cloning using ECAPA-TDNN
       const result = await ttsEngine.cloneVoice({
         text: cloneText.trim(),
         referenceAudioUri: selectedFile.uri,
@@ -136,33 +231,72 @@ export default function VoiceCloningScreen() {
         {/* Step 1: Upload Audio */}
         <View className="px-6 mb-6">
           <Text className="text-sm font-semibold text-foreground mb-3">Étape 1: Audio de référence</Text>
-          <Pressable
-            onPress={handlePickFile}
-            disabled={!hasModels}
-            style={({ pressed }) => [
-              {
-                backgroundColor: colors.surface,
-                borderColor: colors.primary,
-                opacity: pressed ? 0.8 : !hasModels ? 0.5 : 1,
-              },
-            ]}
-            className="border-2 border-dashed rounded-2xl p-8 items-center justify-center"
-          >
-            {selectedFile ? (
-              <>
-                <Text className="text-4xl mb-3">🎵</Text>
-                <Text className="text-lg font-semibold text-foreground text-center">{selectedFile.name}</Text>
-                <Text className="text-sm text-muted text-center mt-2">{formatBytes(selectedFile.size)}</Text>
-                <Text className="text-xs text-primary text-center mt-2">Toucher pour changer</Text>
-              </>
-            ) : (
-              <>
-                <Text className="text-4xl mb-3">🎤</Text>
-                <Text className="text-lg font-semibold text-foreground text-center">Charger un échantillon</Text>
-                <Text className="text-sm text-muted text-center mt-2">Audio 3-10 secondes pour le clonage</Text>
-              </>
-            )}
-          </Pressable>
+          <Text className="text-xs text-muted mb-3">
+            Fournissez un échantillon audio de 3 à 10 secondes pour cloner une voix, ou importez une vidéo (MP4, MKV, AVI...) dont l'audio sera extrait automatiquement.
+          </Text>
+
+          {selectedFile ? (
+            <View className="bg-surface border border-primary/40 rounded-2xl p-4">
+              <View className="flex-row items-center justify-between mb-3">
+                <View className="flex-row items-center flex-1 mr-2">
+                  <View className="w-8 h-8 rounded-full bg-success/20 items-center justify-center mr-3">
+                    <Text className="text-success font-bold">✓</Text>
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-base font-semibold text-foreground" numberOfLines={1}>
+                      {selectedFile.name}
+                    </Text>
+                    <Text className="text-xs text-muted">
+                      Échantillon vocal chargé · {formatBytes(selectedFile.size)}
+                    </Text>
+                  </View>
+                </View>
+                <Pressable
+                  onPress={handleRemoveFile}
+                  className="bg-error/10 border border-error/30 rounded-lg px-3 py-1.5"
+                >
+                  <Text className="text-error text-xs font-semibold">Retirer</Text>
+                </Pressable>
+              </View>
+
+              {/* Audio preview player */}
+              {Platform.OS === 'web' ? (
+                <View className="mt-2 rounded-xl overflow-hidden bg-background/50 p-2">
+                  <audio
+                    controls
+                    src={selectedFile.playUri}
+                    style={{ width: '100%', height: '40px' }}
+                    onError={(e) => {
+                      console.error('Audio element error:', e);
+                    }}
+                  />
+                </View>
+              ) : (
+                <ReferenceAudioPlayer uri={selectedFile.playUri} label={selectedFile.name} />
+              )}
+            </View>
+          ) : (
+            <Pressable
+              onPress={handlePickFile}
+              disabled={!hasModels}
+              style={({ pressed }) => [
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.primary,
+                  opacity: pressed ? 0.8 : !hasModels ? 0.5 : 1,
+                },
+              ]}
+              className="border-2 border-dashed rounded-2xl p-8 items-center justify-center"
+            >
+              <Text className="text-4xl mb-3">🎤</Text>
+              <Text className="text-lg font-semibold text-foreground text-center">
+                Charger un fichier audio ou vidéo
+              </Text>
+              <Text className="text-sm text-muted text-center mt-2">
+                Format MP3, WAV, MP4, MKV, AVI (3-10s recommandé)
+              </Text>
+            </Pressable>
+          )}
         </View>
 
         {/* Step 2: Language */}
