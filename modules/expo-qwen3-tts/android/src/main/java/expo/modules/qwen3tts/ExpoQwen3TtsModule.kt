@@ -10,7 +10,7 @@ class ExpoQwen3TtsModule : Module() {
 
         init {
             try {
-                System.loadLibrary("qwen3tts")
+                System.loadLibrary("qwen3tts_jni")
                 nativeLoaded = true
             } catch (e: UnsatisfiedLinkError) {
                 android.util.Log.w("ExpoQwen3Tts", "Failed to load qwen3tts library: ${e.message}")

@@ -29,26 +29,30 @@ if(EXISTS "${OV_BUILD_DIR}/libomnivoice.a" OR EXISTS "${OV_BUILD_DIR}/libomnivoi
     add_compile_definitions(HAS_OMNIVOICE=1)
 endif()
 
-add_library(qwen3tts SHARED ${JNI_SOURCES})
+# 🔴 IMPORTANT: Our JNI target MUST have a DIFFERENT name than the
+# pre-built library libqwen3tts.so from qwen3-tts-cpp.
+# If both are named 'qwen3tts', CMake errors: "Target links to itself".
+# The JNI wrapper -> qwen3tts_jni, the pre-built engine -> qwen3tts
+add_library(qwen3tts_jni SHARED ${JNI_SOURCES})
 
-target_include_directories(qwen3tts PRIVATE
+target_include_directories(qwen3tts_jni PRIVATE
     ${QWEN3_CPP_DIR}/src
     ${GGML_DIR}/include
 )
 
 if(OMNIVOICE_AVAILABLE)
-    target_include_directories(qwen3tts PRIVATE ${OV_CPP_DIR}/src)
+    target_include_directories(qwen3tts_jni PRIVATE ${OV_CPP_DIR}/src)
 endif()
 
 # libqwen3tts.so (from qwen3tts_shared target, OUTPUT_NAME="qwen3tts")
 # already contains ALL symbols: ggml, text_tokenizer, tts_transformer,
 # audio_tokenizer_encoder, audio_tokenizer_decoder.
 # We only need to link against it — GGML libs are embedded inside.
-target_link_directories(qwen3tts PRIVATE
+target_link_directories(qwen3tts_jni PRIVATE
     ${QWEN3_BUILD_DIR}
 )
 
-target_link_libraries(qwen3tts
+target_link_libraries(qwen3tts_jni
     qwen3tts
     log
     atomic
@@ -56,6 +60,6 @@ target_link_libraries(qwen3tts
 )
 
 if(OMNIVOICE_AVAILABLE)
-    target_link_directories(qwen3tts PRIVATE ${OV_BUILD_DIR})
-    target_link_libraries(qwen3tts PUBLIC omnivoice)
+    target_link_directories(qwen3tts_jni PRIVATE ${OV_BUILD_DIR})
+    target_link_libraries(qwen3tts_jni PUBLIC omnivoice)
 endif()
