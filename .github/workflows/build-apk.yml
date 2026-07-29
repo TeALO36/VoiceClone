@@ -5,6 +5,12 @@ on:
     tags:
       - 'v*.*.*'
   workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create GitHub Release?'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -75,10 +81,14 @@ jobs:
             echo "Error: APK not found!"
             exit 1
           fi
-          VERSION="${GITHUB_REF_NAME:-manual}"
-          NEW_PATH="VoxClone-Pro-${VERSION}.apk"
+          TAG_NAME="${GITHUB_REF_NAME}"
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+ ]]; then
+            TAG_NAME="v1.0.0-$(date +'%Y%m%d-%H%M%S')"
+          fi
+          NEW_PATH="VoxClone-Pro-${TAG_NAME}.apk"
           cp "$APK_PATH" "$NEW_PATH"
           echo "apk_path=$NEW_PATH" >> $GITHUB_OUTPUT
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
           echo "Built: $NEW_PATH ($(du -h "$NEW_PATH" | cut -f1))"
 
       - name: Upload APK Artifact
@@ -89,9 +99,10 @@ jobs:
           retention-days: 30
 
       - name: Create GitHub Release & Attach APK
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.create_release == true || inputs.create_release == 'true'))
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.apk.outputs.tag_name }}
           files: ${{ steps.apk.outputs.apk_path }}
           generate_release_notes: true
           draft: false

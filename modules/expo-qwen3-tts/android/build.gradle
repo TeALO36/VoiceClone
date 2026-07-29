@@ -30,6 +30,15 @@ android {
         }
     }
 
+    sourceSets {
+        main {
+            jniLibs.srcDirs = [
+                "${projectDir}/../../../qwen3-tts-cpp/ggml/build/src",
+                "${projectDir}/../../../omnivoice-cpp/build"
+            ]
+        }
+    }
+
     buildFeatures {
         prefab true
     }

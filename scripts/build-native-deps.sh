@@ -87,7 +87,7 @@ mkdir -p ggml/build
 "${CMAKE}" -S ggml -B ggml/build \
     "${CMAKE_ARGS[@]}" \
     -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DGGML_CPU_ALL_WARNINGS=OFF
-"${CMAKE}" --build ggml/build --target ggml ggml-base ggml-cpu -j "${JOBS}"
+"${CMAKE}" --build ggml/build -j "${JOBS}"
 echo "GGML built ✓"
 
 # ---- 2. Build qwen3-tts-cpp ----
@@ -108,8 +108,8 @@ mkdir -p build
 "${CMAKE}" -S . -B build \
     "${CMAKE_ARGS[@]}" \
     -DQWEN3_TTS_TIMING=OFF -DQWEN3_TTS_COREML=OFF
-# Build the shared lib (includes static deps automatically)
-"${CMAKE}" --build build --target qwen3tts_shared -j "${JOBS}"
+# Build qwen3-tts-cpp targets
+"${CMAKE}" --build build -j "${JOBS}"
 echo "qwen3-tts-cpp built ✓"
 echo "  Output files in build/:"
 ls -la build/libqwen3tts* 2>/dev/null || echo "  (WARNING: libqwen3tts* not found - listing build/)"

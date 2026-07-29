@@ -16,9 +16,10 @@ set(QWEN3_BUILD_DIR "${QWEN3_CPP_DIR}/build")
 set(GGML_BUILD_DIR "${GGML_DIR}/build/src")
 set(OV_BUILD_DIR "${OV_CPP_DIR}/build")
 
-# Our JNI source
+# Our JNI source & C API implementation
 set(JNI_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/qwen3-tts-jni.cpp
+    ${QWEN3_CPP_DIR}/src/qwen3tts_c_api.cpp
 )
 
 # Check if OmniVoice libs exist
@@ -44,15 +45,11 @@ if(OMNIVOICE_AVAILABLE)
     target_include_directories(qwen3tts_jni PRIVATE ${OV_CPP_DIR}/src)
 endif()
 
-# libqwen3tts.so (from qwen3tts_shared target, OUTPUT_NAME="qwen3tts")
-# already contains ALL symbols: ggml, text_tokenizer, tts_transformer,
-# audio_tokenizer_encoder, audio_tokenizer_decoder.
-# We only need to link against it — GGML libs are embedded inside.
 target_link_directories(qwen3tts_jni PRIVATE
     ${QWEN3_BUILD_DIR}
 )
 
-target_link_libraries(qwen3tts_jni
+target_link_libraries(qwen3tts_jni PRIVATE
     qwen3tts
     log
     atomic
@@ -61,5 +58,5 @@ target_link_libraries(qwen3tts_jni
 
 if(OMNIVOICE_AVAILABLE)
     target_link_directories(qwen3tts_jni PRIVATE ${OV_BUILD_DIR})
-    target_link_libraries(qwen3tts_jni PUBLIC omnivoice)
+    target_link_libraries(qwen3tts_jni PRIVATE omnivoice)
 endif()
