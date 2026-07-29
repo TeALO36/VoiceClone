@@ -5,7 +5,8 @@ import { useColors } from '@/hooks/use-colors';
 import { AudioPlayer } from '@/components/audio-player';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
-import { localTtsService, VOICE_PRESETS, getSupportedLanguages, LocalTTSResult } from '@/lib/services/local-tts';
+import { VOICE_PRESETS, getSupportedLanguages } from '@/lib/services/local-tts';
+import type { Qwen3TtsResult } from '@/modules/expo-qwen3-tts';
 
 const VOICE_LIST = Object.entries(VOICE_PRESETS).map(([id, preset]) => ({
   id,
@@ -17,15 +18,17 @@ const LANGUAGES = getSupportedLanguages();
 
 export default function SynthesisScreen() {
   const colors = useColors();
-  const { installedModels } = useTTS();
+  const { installedModels, getModelPath, ttsEngine } = useTTS();
 
   const [text, setText] = useState('');
-  const [selectedModel, setSelectedModel] = useState('qwen3');
+  const [selectedModelId, setSelectedModelId] = useState<string>('');
   const [selectedLanguage, setSelectedLanguage] = useState('fr');
   const [selectedVoice, setSelectedVoice] = useState('male-neutral');
-  const [selectedQuality, setSelectedQuality] = useState<'fast' | 'normal' | 'high'>('normal');
   const [isLoading, setIsLoading] = useState(false);
-  const [synthesisResult, setSynthesisResult] = useState<LocalTTSResult | null>(null);
+  const [isModelLoading, setIsModelLoading] = useState(false);
+  const [synthesisResult, setSynthesisResult] = useState<Qwen3TtsResult | null>(null);
+
+  const hasModels = installedModels.length > 0;
 
   const handleSynthesize = async () => {
     if (!text.trim()) {
@@ -33,21 +36,33 @@ export default function SynthesisScreen() {
       return;
     }
 
+    const modelId = selectedModelId || installedModels[0]?.id;
+    if (!modelId) {
+      Alert.alert('Erreur', 'Aucun modèle installé. Installez Qwen3-TTS d\'abord.');
+      return;
+    }
+
     setIsLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      const result = await localTtsService.synthesize({
+      const modelDir = await getModelPath(modelId);
+      if (!modelDir) {
+        Alert.alert('Erreur', 'Modèle introuvable. Réinstallez-le.');
+        return;
+      }
+
+      const result = await ttsEngine.synthesize({
         text: text.trim(),
+        modelDir,
         language: selectedLanguage,
-        voicePreset: selectedVoice,
-        quality: selectedQuality,
       });
+
       setSynthesisResult(result);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Synthesis error:', error);
-      Alert.alert('Erreur', 'Impossible de synthétiser le texte');
+      Alert.alert('Erreur', error?.message || 'Impossible de synthétiser le texte');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsLoading(false);
@@ -60,39 +75,51 @@ export default function SynthesisScreen() {
         {/* Header */}
         <View className="px-6 pt-6 pb-4">
           <Text className="text-2xl font-bold text-foreground">Synthèse vocale</Text>
-          <Text className="text-sm text-muted mt-1">Entrez du texte et choisissez votre voix</Text>
+          <Text className="text-sm text-muted mt-1">
+            {hasModels
+              ? 'Entrez du texte — inférence 100% locale'
+              : 'Installez un modèle pour commencer'}
+          </Text>
         </View>
 
         {/* Model Selection */}
         <View className="px-6 mb-6">
           <Text className="text-sm font-semibold text-foreground mb-3">Modèle</Text>
-          <View className="flex-row gap-2">
-            {[
-              { id: 'qwen3', label: 'Qwen3-TTS' },
-              { id: 'omnivoice', label: 'OmniVoice' },
-            ].map((model) => (
-              <Pressable
-                key={model.id}
-                onPress={() => {
-                  setSelectedModel(model.id);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-                style={({ pressed }) => [
-                  {
-                    backgroundColor: selectedModel === model.id ? colors.primary : colors.surface,
-                    opacity: pressed ? 0.8 : 1,
-                  },
-                ]}
-                className="flex-1 rounded-lg p-3 border border-border"
-              >
-                <Text
-                  className={selectedModel === model.id ? 'text-white font-semibold text-center' : 'text-foreground font-semibold text-center'}
+          {hasModels ? (
+            <View className="flex-row gap-2">
+              {installedModels.map((model) => (
+                <Pressable
+                  key={model.id}
+                  onPress={() => {
+                    setSelectedModelId(model.id);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                  style={({ pressed }) => [
+                    {
+                      backgroundColor: (selectedModelId || installedModels[0]?.id) === model.id ? colors.primary : colors.surface,
+                      opacity: pressed ? 0.8 : 1,
+                    },
+                  ]}
+                  className="flex-1 rounded-lg p-3 border border-border"
                 >
-                  {model.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
+                  <Text
+                    className={(selectedModelId || installedModels[0]?.id) === model.id
+                      ? 'text-white font-semibold text-center'
+                      : 'text-foreground font-semibold text-center'}
+                  >
+                    {model.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : (
+            <View className="bg-warning/10 rounded-xl p-4 border border-warning/30">
+              <Text className="text-warning font-semibold">⚠️ Aucun modèle installé</Text>
+              <Text className="text-sm text-muted mt-1">
+                Allez dans l'onglet Modèles pour installer Qwen3-TTS.
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Language Selection */}
@@ -132,7 +159,7 @@ export default function SynthesisScreen() {
 
         {/* Voice Selection */}
         <View className="px-6 mb-6">
-          <Text className="text-sm font-semibold text-foreground mb-3">Voix</Text>
+          <Text className="text-sm font-semibold text-foreground mb-3">Voix (présélection)</Text>
           <FlatList
             data={VOICE_LIST}
             keyExtractor={(item) => item.id}
@@ -164,39 +191,6 @@ export default function SynthesisScreen() {
           />
         </View>
 
-        {/* Quality Selection */}
-        <View className="px-6 mb-6">
-          <Text className="text-sm font-semibold text-foreground mb-3">Qualité</Text>
-          <View className="flex-row gap-2">
-            {[
-              { id: 'fast', label: 'Rapide' },
-              { id: 'normal', label: 'Normal' },
-              { id: 'high', label: 'Haute' },
-            ].map((q) => (
-              <Pressable
-                key={q.id}
-                onPress={() => {
-                  setSelectedQuality(q.id as 'fast' | 'normal' | 'high');
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-                style={({ pressed }) => [
-                  {
-                    backgroundColor: selectedQuality === q.id ? colors.primary : colors.surface,
-                    opacity: pressed ? 0.8 : 1,
-                  },
-                ]}
-                className="flex-1 rounded-lg p-2 border border-border"
-              >
-                <Text
-                  className={selectedQuality === q.id ? 'text-white font-semibold text-center text-sm' : 'text-foreground font-semibold text-center text-sm'}
-                >
-                  {q.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-
         {/* Text Input */}
         <View className="px-6 mb-6">
           <Text className="text-sm font-semibold text-foreground mb-3">Texte à synthétiser</Text>
@@ -217,30 +211,38 @@ export default function SynthesisScreen() {
         <View className="px-6 mb-6">
           <Pressable
             onPress={handleSynthesize}
-            disabled={isLoading || !text.trim()}
+            disabled={isLoading || !text.trim() || !hasModels}
             style={({ pressed }) => [
               {
-                backgroundColor: isLoading || !text.trim() ? colors.muted : colors.primary,
+                backgroundColor: isLoading || !text.trim() || !hasModels ? colors.muted : colors.primary,
                 opacity: pressed ? 0.9 : 1,
                 transform: [{ scale: pressed ? 0.97 : 1 }],
               },
             ]}
             className="rounded-xl p-4 flex-row items-center justify-center"
           >
-            {isLoading && <ActivityIndicator color="white" style={{ marginRight: 8 }} />}
-            <Text className="text-white font-semibold text-center text-lg">
-              {isLoading ? 'Synthèse en cours...' : '🔊 Synthétiser'}
-            </Text>
+            {isLoading ? (
+              <>
+                <ActivityIndicator color="white" style={{ marginRight: 8 }} />
+                <Text className="text-white font-semibold text-center text-lg">
+                  Inférence en cours... (Qwen3-TTS local)
+                </Text>
+              </>
+            ) : (
+              <Text className="text-white font-semibold text-center text-lg">
+                🔊 Synthétiser (Qwen3-TTS on-device)
+              </Text>
+            )}
           </Pressable>
         </View>
 
-        {/* Result with working audio player */}
+        {/* Result */}
         {synthesisResult && (
           <View className="px-6">
             <View className="bg-success/10 border border-success rounded-xl p-4">
-              <Text className="text-success font-semibold mb-1">✓ Synthèse réussie</Text>
+              <Text className="text-success font-semibold mb-1">✓ Synthèse réussie (Qwen3-TTS)</Text>
               <Text className="text-foreground text-sm mb-1">
-                Langue: {synthesisResult.language} | Voix: {VOICE_PRESETS[synthesisResult.voicePreset]?.label || 'Clonée'}
+                {synthesisResult.sampleRate}Hz · {synthesisResult.frameCount} frames · {synthesisResult.duration.toFixed(1)}s
               </Text>
               <AudioPlayer result={synthesisResult} />
             </View>

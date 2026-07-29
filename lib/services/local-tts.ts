@@ -1,65 +1,27 @@
 /**
- * Local TTS service — uses expo-speech for real audible synthesis.
- * No silent WAV files, no fake buffers. Actual device TTS engine.
+ * On-device TTS service — uses the native Qwen3-TTS C++ engine.
+ * Loads GGUF model from device storage, runs inference 100% locally.
  */
-
-import * as Speech from 'expo-speech';
 import { Platform } from 'react-native';
+import * as Qwen3Tts from '@/modules/expo-qwen3-tts';
+import type { Qwen3TtsResult } from '@/modules/expo-qwen3-tts';
 
-export interface LocalTTSOptions {
+export type { Qwen3TtsResult };
+
+export interface TTSOptions {
   text: string;
   language?: string;
-  voicePreset?: string;
-  quality?: 'fast' | 'normal' | 'high';
-  pitch?: number;
-  rate?: number;
-  voice?: string; // specific system voice id
+  modelDir: string;
 }
 
-export interface LocalTTSResult {
+export interface CloneOptions {
   text: string;
-  language: string;
-  voice: string;
-  voicePreset: string;
-  pitch: number;
-  rate: number;
-  duration: number; // estimated in seconds
-  timestamp: number;
+  referenceAudioUri: string;
+  modelDir: string;
+  language?: string;
 }
 
-// Map app language IDs to BCP-47 locale tags understood by TTS engines
-const LANGUAGE_MAP: Record<string, string> = {
-  fr: 'fr-FR',
-  en: 'en-US',
-  es: 'es-ES',
-  de: 'de-DE',
-  it: 'it-IT',
-  ja: 'ja-JP',
-  zh: 'zh-CN',
-  ko: 'ko-KR',
-  ru: 'ru-RU',
-  pt: 'pt-BR',
-  ar: 'ar-SA',
-  hi: 'hi-IN',
-  tr: 'tr-TR',
-  nl: 'nl-NL',
-  pl: 'pl-PL',
-};
-
-// Voice presets — adjust pitch & rate to simulate different voice characters
-export const VOICE_PRESETS: Record<string, { pitch: number; rate: number; label: string; emoji: string }> = {
-  'male-neutral': { pitch: 1.0, rate: 1.0, label: 'Homme neutre', emoji: '👨' },
-  'female-neutral': { pitch: 1.4, rate: 1.0, label: 'Femme neutre', emoji: '👩' },
-  'male-deep': { pitch: 0.7, rate: 0.9, label: 'Homme grave', emoji: '🧔' },
-  'female-bright': { pitch: 1.6, rate: 1.1, label: 'Femme claire', emoji: '👧' },
-  'child': { pitch: 1.9, rate: 1.15, label: 'Enfant', emoji: '👦' },
-  'narrator': { pitch: 0.85, rate: 0.85, label: 'Narrateur', emoji: '🎙️' },
-};
-
-export function getLanguageTag(langId: string): string {
-  return LANGUAGE_MAP[langId] || 'en-US';
-}
-
+// ─── Language mapping ───
 export function getSupportedLanguages(): { id: string; name: string; flag: string }[] {
   return [
     { id: 'fr', name: 'Français', flag: '🇫🇷' },
@@ -80,166 +42,100 @@ export function getSupportedLanguages(): { id: string; name: string; flag: strin
   ];
 }
 
-class LocalTTSService {
-  /**
-   * Synthesize text — returns voice settings for playback.
-   * Actual audio is played via expo-speech (see useSpeech hook / AudioPlayer component).
-   */
-  async synthesize(options: LocalTTSOptions): Promise<LocalTTSResult> {
-    const {
-      text,
-      language = 'fr',
-      voicePreset = 'male-neutral',
-      quality = 'normal',
-      pitch,
-      rate,
-      voice,
-    } = options;
+// Simple voice presets (for display, actual voice cloning uses reference audio)
+export const VOICE_PRESETS: Record<string, { label: string; emoji: string }> = {
+  'male-neutral': { label: 'Homme neutre', emoji: '👨' },
+  'female-neutral': { label: 'Femme neutre', emoji: '👩' },
+  'male-deep': { label: 'Homme grave', emoji: '🧔' },
+  'female-bright': { label: 'Femme claire', emoji: '👧' },
+  'child': { label: 'Enfant', emoji: '👦' },
+  'narrator': { label: 'Narrateur', emoji: '🎙️' },
+};
 
-    if (!text.trim()) {
+export class OnDeviceTTSService {
+  private currentModelDir: string | null = null;
+
+  /**
+   * Initialize (load) the Qwen3-TTS model from a local GGUF directory.
+   * Model must be downloaded first via the models service.
+   */
+  async initModel(modelDir: string): Promise<void> {
+    if (this.currentModelDir === modelDir) {
+      const ready = await Qwen3Tts.isModelReady();
+      if (ready) return;
+    }
+
+    const success = await Qwen3Tts.initModel(modelDir);
+    if (!success) {
+      throw new Error(`Failed to load model from: ${modelDir}`);
+    }
+    this.currentModelDir = modelDir;
+  }
+
+  /**
+   * Synthesize text to speech using the on-device Qwen3-TTS model.
+   * Returns raw PCM audio data that can be played via expo-av.
+   */
+  async synthesize(options: TTSOptions): Promise<Qwen3TtsResult> {
+    if (!options.text.trim()) {
       throw new Error('Le texte ne peut pas être vide');
     }
 
-    const preset = VOICE_PRESETS[voicePreset] || VOICE_PRESETS['male-neutral'];
-    const langTag = getLanguageTag(language);
+    if (this.currentModelDir !== options.modelDir) {
+      await this.initModel(options.modelDir);
+    }
 
-    // Quality affects rate: fast = faster, high = slower and more deliberate
-    const qualityRateMap = { fast: 1.25, normal: 1.0, high: 0.8 };
-    const finalRate = rate ?? preset.rate * qualityRateMap[quality];
-    const finalPitch = pitch ?? preset.pitch;
-
-    // Estimate duration: average reading speed ~150 words/min for normal quality
-    const wordCount = text.trim().split(/\s+/).length;
-    const baseDuration = (wordCount / 150) * 60; // seconds
-    const duration = baseDuration / finalRate;
-
-    return {
-      text: text.trim(),
-      language: langTag,
-      voice: voice || '',
-      voicePreset,
-      pitch: finalPitch,
-      rate: finalRate,
-      duration: Math.max(0.5, duration),
-      timestamp: Date.now(),
-    };
+    return await Qwen3Tts.synthesize(options.text.trim());
   }
 
   /**
-   * Clone voice from an audio sample.
-   * Analyzes the file to derive voice characteristics, then returns
-   * modified TTS settings that simulate the reference voice.
+   * Clone a voice from a reference audio file and synthesize text.
+   * Uses the ECAPA-TDNN speaker encoder in qwen3-tts.cpp for zero-shot cloning.
    */
-  async cloneVoice(
-    audioUri: string,
-    text: string,
-    options: {
-      language?: string;
-      quality?: 'fast' | 'normal' | 'high';
-      fileName?: string;
-      fileSize?: number;
-    } = {}
-  ): Promise<LocalTTSResult> {
-    const { language = 'fr', quality = 'normal', fileName, fileSize } = options;
-
-    if (!text.trim()) {
+  async cloneVoice(options: CloneOptions): Promise<Qwen3TtsResult> {
+    if (!options.text.trim()) {
       throw new Error('Le texte ne peut pas être vide');
     }
 
-    // Derive voice characteristics from the audio file
-    const voiceProfile = this.deriveVoiceProfile(fileName, fileSize);
+    if (this.currentModelDir !== options.modelDir) {
+      await this.initModel(options.modelDir);
+    }
 
-    const langTag = getLanguageTag(language);
-    const qualityRateMap = { fast: 1.25, normal: 1.0, high: 0.8 };
-
-    const wordCount = text.trim().split(/\s+/).length;
-    const baseDuration = (wordCount / 150) * 60;
-    const duration = baseDuration / (voiceProfile.rate * qualityRateMap[quality]);
-
-    return {
-      text: text.trim(),
-      language: langTag,
-      voice: '',
-      voicePreset: 'cloned',
-      pitch: voiceProfile.pitch,
-      rate: voiceProfile.rate * qualityRateMap[quality],
-      duration: Math.max(0.5, duration),
-      timestamp: Date.now(),
-    };
+    return await Qwen3Tts.cloneVoice(
+      options.text.trim(),
+      options.referenceAudioUri
+    );
   }
 
   /**
-   * Derive a voice profile from file metadata.
-   * In production this would analyze the audio waveform; here we use
-   * file properties as heuristics to vary the synthesized voice.
+   * Release the currently loaded model to free memory.
    */
-  private deriveVoiceProfile(fileName?: string, fileSize?: number): { pitch: number; rate: number } {
-    let pitch = 1.0;
-    let rate = 1.0;
-
-    // Use file size as a rough heuristic for voice depth
-    // (larger files tend to be longer/deeper recordings)
-    if (fileSize) {
-      const sizeMB = fileSize / (1024 * 1024);
-      if (sizeMB > 5) {
-        pitch = 0.8; // deeper voice
-        rate = 0.95;
-      } else if (sizeMB > 2) {
-        pitch = 1.0;
-        rate = 1.0;
-      } else {
-        pitch = 1.2; // higher voice
-        rate = 1.05;
-      }
-    }
-
-    // Vary slightly based on filename hash for uniqueness
-    if (fileName) {
-      let hash = 0;
-      for (let i = 0; i < fileName.length; i++) {
-        hash = ((hash << 5) - hash) + fileName.charCodeAt(i);
-        hash |= 0;
-      }
-      const variation = (Math.abs(hash) % 20 - 10) / 100; // -0.10 to +0.10
-      pitch = Math.max(0.5, Math.min(2.0, pitch + variation));
-    }
-
-    return { pitch, rate };
+  async release(): Promise<void> {
+    await Qwen3Tts.releaseModel();
+    this.currentModelDir = null;
   }
 
   /**
-   * Get available system voices for a given language.
+   * Check if the engine is ready for inference.
    */
-  async getAvailableVoices(language?: string): Promise<Speech.Voice[]> {
+  async isReady(): Promise<boolean> {
     try {
-      const voices = await Speech.getAvailableVoicesAsync();
-      if (language) {
-        const langTag = getLanguageTag(language).toLowerCase();
-        const langPrefix = langTag.split('-')[0];
-        return voices.filter(v =>
-          v.language.toLowerCase().startsWith(langPrefix) ||
-          v.language.toLowerCase().startsWith(langTag)
-        );
-      }
-      return voices;
-    } catch {
-      return [];
-    }
-  }
-
-  /**
-   * Check if TTS is available on this device.
-   */
-  async isAvailable(): Promise<boolean> {
-    try {
-      if (Platform.OS === 'web') {
-        return typeof window !== 'undefined' && 'speechSynthesis' in window;
-      }
-      return true;
+      return await Qwen3Tts.isModelReady();
     } catch {
       return false;
     }
   }
+
+  /**
+   * Get the sample rate of the loaded model (typically 24000 Hz).
+   */
+  async getSampleRate(): Promise<number> {
+    try {
+      return await Qwen3Tts.getSampleRate();
+    } catch {
+      return 24000;
+    }
+  }
 }
 
-export const localTtsService = new LocalTTSService();
+export const onDeviceTts = new OnDeviceTTSService();

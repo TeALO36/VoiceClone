@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { modelsService, TTSModel, ModelState } from '@/lib/services/models';
+import { onDeviceTts, OnDeviceTTSService } from '@/lib/services/local-tts';
 
 export interface TTSContextType {
   installedModels: TTSModel[];
@@ -10,6 +11,10 @@ export interface TTSContextType {
   refreshModels: () => Promise<void>;
   totalStorageUsed: number;
   refreshStorageInfo: () => Promise<void>;
+  /** Get the local file path for an installed model (used to init the TTS engine) */
+  getModelPath: (modelId: string) => Promise<string | null>;
+  /** The on-device TTS engine instance */
+  ttsEngine: OnDeviceTTSService;
 }
 
 const TTSContext = createContext<TTSContextType | undefined>(undefined);
@@ -20,7 +25,7 @@ export function TTSProvider({ children }: { children: ReactNode }) {
   const [downloadingModels, setDownloadingModels] = useState<{ [key: string]: number }>({});
   const [totalStorageUsed, setTotalStorageUsed] = useState(0);
 
-  const refreshModels = async () => {
+  const refreshModels = useCallback(async () => {
     try {
       const state: ModelState = await modelsService.getState();
       setInstalledModels(state.installed);
@@ -30,13 +35,13 @@ export function TTSProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('Failed to refresh models:', error);
     }
-  };
+  }, []);
 
   useEffect(() => {
     refreshModels();
-  }, []);
+  }, [refreshModels]);
 
-  const downloadModel = async (modelId: string): Promise<boolean> => {
+  const downloadModel = useCallback(async (modelId: string): Promise<boolean> => {
     try {
       const success = await modelsService.downloadModel(modelId, (progress) => {
         setDownloadingModels((prev) => ({ ...prev, [modelId]: progress }));
@@ -61,9 +66,9 @@ export function TTSProvider({ children }: { children: ReactNode }) {
       });
       return false;
     }
-  };
+  }, [refreshModels]);
 
-  const deleteModel = async (modelId: string): Promise<boolean> => {
+  const deleteModel = useCallback(async (modelId: string): Promise<boolean> => {
     try {
       const success = await modelsService.deleteModel(modelId);
       if (success) {
@@ -74,12 +79,16 @@ export function TTSProvider({ children }: { children: ReactNode }) {
       console.error('Failed to delete model:', error);
       return false;
     }
-  };
+  }, [refreshModels]);
 
-  const refreshStorageInfo = async () => {
+  const getModelPath = useCallback(async (modelId: string): Promise<string | null> => {
+    return modelsService.getModelPath(modelId);
+  }, []);
+
+  const refreshStorageInfo = useCallback(async () => {
     const storage = await modelsService.getTotalStorageUsed();
     setTotalStorageUsed(storage);
-  };
+  }, []);
 
   const value: TTSContextType = {
     installedModels,
@@ -90,6 +99,8 @@ export function TTSProvider({ children }: { children: ReactNode }) {
     refreshModels,
     totalStorageUsed,
     refreshStorageInfo,
+    getModelPath,
+    ttsEngine: onDeviceTts,
   };
 
   return <TTSContext.Provider value={value}>{children}</TTSContext.Provider>;

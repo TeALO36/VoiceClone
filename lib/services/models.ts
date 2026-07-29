@@ -1,11 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 
 export interface TTSModel {
   id: string;
   name: string;
   description: string;
-  modelId: string;
-  type: 'qwen' | 'omnivoice' | 'other';
+  hfModelId: string;
+  ggufFiles: string[];
+  type: 'qwen3' | 'omnivoice';
   size: number;
   languages: string[];
   isInstalled: boolean;
@@ -17,33 +20,32 @@ export interface ModelState {
   available: TTSModel[];
 }
 
-// ─── Master catalog — NEVER mutated at runtime ───
+// ─── HuggingFace repo for GGUF quantized models ───
+// Qwen3-TTS-0.6B Q8_0 GGUF (~600MB) from predict-woo/qwen3-tts.cpp
+const GGUF_REPO = 'https://huggingface.co/predict-woo/qwen3-tts-gguf/resolve/main';
+
+// ─── Master catalog ───
 const MODEL_CATALOG: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
   {
     id: 'qwen3-tts-06b',
     name: 'Qwen3-TTS 0.6B',
-    description: 'Modèle léger avec clonage de voix 3-secondes',
-    modelId: 'Qwen/Qwen3-TTS-12Hz-0.6B-Base',
-    type: 'qwen',
-    size: 2.4 * 1024 * 1024 * 1024,
+    description: 'Synthèse vocale & clonage de voix — GGUF Q8_0 quantifié',
+    hfModelId: 'predict-woo/qwen3-tts-gguf',
+    ggufFiles: [
+      'qwen3-tts-0.6b-f16.gguf',
+      'qwen3-tts-tokenizer-f16.gguf',
+    ],
+    type: 'qwen3',
+    size: 640 * 1024 * 1024, // ~640 MB for Q8_0
     languages: ['Chinese', 'English', 'Japanese', 'Korean', 'German', 'French', 'Russian', 'Portuguese', 'Spanish', 'Italian'],
-  },
-  {
-    id: 'omnivoice-base',
-    name: 'OmniVoice',
-    description: 'Synthèse vocale multilingue 600+ langues',
-    modelId: 'k2-fsa/OmniVoice',
-    type: 'omnivoice',
-    size: 2.0 * 1024 * 1024 * 1024,
-    languages: ['600+ languages supported'],
   },
 ];
 
 const INSTALLED_KEY = 'voxclone_installed_models';
 
-// Stored format: { [modelId]: { downloadedAt: number } }
 interface InstalledRecord {
   downloadedAt: number;
+  modelDir: string;
 }
 
 async function getInstalledRecords(): Promise<Record<string, InstalledRecord>> {
@@ -59,11 +61,11 @@ async function saveInstalledRecords(records: Record<string, InstalledRecord>): P
   await AsyncStorage.setItem(INSTALLED_KEY, JSON.stringify(records));
 }
 
+function getModelDir(modelId: string): string {
+  return `${FileSystem.documentDirectory}models/${modelId}`;
+}
+
 class ModelsService {
-  /**
-   * Get current model state — installed and available are always mutually exclusive.
-   * No duplicates: a model appears in EITHER installed OR available, never both.
-   */
   async getState(): Promise<ModelState> {
     const records = await getInstalledRecords();
     const installedIds = new Set(Object.keys(records));
@@ -84,13 +86,12 @@ class ModelsService {
   }
 
   /**
-   * Download (install) a model.
-   * Prevents duplicate installation — returns false if already installed.
+   * Download Qwen3-TTS GGUF model files from HuggingFace.
+   * REAL download — no simulation.
    */
   async downloadModel(modelId: string, onProgress?: (progress: number) => void): Promise<boolean> {
     const records = await getInstalledRecords();
 
-    // ─── Prevent duplicate install ───
     if (records[modelId]) {
       console.warn('Model already installed:', modelId);
       return false;
@@ -102,23 +103,64 @@ class ModelsService {
       return false;
     }
 
-    // Simulate download with progress
-    for (let i = 0; i <= 100; i += 10) {
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      onProgress?.(i);
+    const modelDir = getModelDir(modelId);
+
+    // Ensure model directory exists
+    const dirInfo = await FileSystem.getInfoAsync(modelDir);
+    if (!dirInfo.exists) {
+      await FileSystem.makeDirectoryAsync(modelDir, { intermediates: true });
     }
 
-    records[modelId] = { downloadedAt: Date.now() };
+    const totalFiles = model.ggufFiles.length;
+    let totalDownloaded = 0;
+
+    for (let i = 0; i < totalFiles; i++) {
+      const fileName = model.ggufFiles[i];
+      const fileUrl = `${GGUF_REPO}/${fileName}`;
+      const filePath = `${modelDir}/${fileName}`;
+
+      try {
+        const downloadResult = await FileSystem.downloadAsync(
+          fileUrl,
+          filePath,
+        );
+
+        if (downloadResult.status !== 200) {
+          console.error(`Failed to download ${fileName}: HTTP ${downloadResult.status}`);
+          return false;
+        }
+
+        totalDownloaded++;
+        const fileProgress = (totalDownloaded / totalFiles) * 100;
+        onProgress?.(Math.round(fileProgress));
+      } catch (error) {
+        console.error(`Download error for ${fileName}:`, error);
+        return false;
+      }
+    }
+
+    records[modelId] = {
+      downloadedAt: Date.now(),
+      modelDir,
+    };
     await saveInstalledRecords(records);
     return true;
   }
 
-  /**
-   * Delete (uninstall) a model.
-   */
   async deleteModel(modelId: string): Promise<boolean> {
     const records = await getInstalledRecords();
     if (!records[modelId]) return false;
+
+    // Remove model files from disk
+    const modelDir = records[modelId].modelDir;
+    try {
+      const dirInfo = await FileSystem.getInfoAsync(modelDir);
+      if (dirInfo.exists) {
+        await FileSystem.deleteAsync(modelDir, { idempotent: true });
+      }
+    } catch (error) {
+      console.error('Failed to delete model files:', error);
+    }
 
     delete records[modelId];
     await saveInstalledRecords(records);
@@ -135,9 +177,9 @@ class ModelsService {
     return installed;
   }
 
-  async getAvailableModels(): Promise<TTSModel[]> {
-    const { available } = await this.getState();
-    return available;
+  async getModelPath(modelId: string): Promise<string | null> {
+    const records = await getInstalledRecords();
+    return records[modelId]?.modelDir || null;
   }
 
   async getTotalStorageUsed(): Promise<number> {
@@ -147,9 +189,6 @@ class ModelsService {
       .reduce((total, m) => total + m.size, 0);
   }
 
-  /**
-   * Get the full catalog (all models regardless of install state).
-   */
   getCatalog(): Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] {
     return MODEL_CATALOG;
   }

@@ -1,0 +1,9 @@
+{
+  "platforms": ["android", "ios"],
+  "android": {
+    "modules": ["expo.modules.qwen3tts.ExpoQwen3TtsModule"]
+  },
+  "ios": {
+    "modules": ["ExpoQwen3TtsModule"]
+  }
+}
