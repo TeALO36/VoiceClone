@@ -45,12 +45,18 @@ if(OMNIVOICE_AVAILABLE)
     target_include_directories(qwen3tts_jni PRIVATE ${OV_CPP_DIR}/src)
 endif()
 
-target_link_directories(qwen3tts_jni PRIVATE
-    ${QWEN3_BUILD_DIR}
-)
+set(QWEN3_LIB_FOUND OFF)
+if(EXISTS "${QWEN3_BUILD_DIR}/libqwen3tts.so" OR EXISTS "${QWEN3_BUILD_DIR}/libqwen3tts.a")
+    target_link_directories(qwen3tts_jni PRIVATE ${QWEN3_BUILD_DIR})
+    target_link_libraries(qwen3tts_jni PRIVATE qwen3tts)
+    set(QWEN3_LIB_FOUND ON)
+elseif(EXISTS "${QWEN3_BUILD_DIR}/libqwen3_tts.a" OR EXISTS "${QWEN3_BUILD_DIR}/libqwen3_tts.so")
+    target_link_directories(qwen3tts_jni PRIVATE ${QWEN3_BUILD_DIR})
+    target_link_libraries(qwen3tts_jni PRIVATE qwen3_tts)
+    set(QWEN3_LIB_FOUND ON)
+endif()
 
 target_link_libraries(qwen3tts_jni PRIVATE
-    qwen3tts
     log
     atomic
     m
