@@ -9,8 +9,8 @@
     "check": "tsc --noEmit",
     "lint": "expo lint",
     "format": "prettier --write .",
-    "android": "expo start --android",
-    "ios": "expo start --ios"
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
