@@ -6,12 +6,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 get_filename_component(PROJECT_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../.. ABSOLUTE)
 set(QWEN3_CPP_DIR "${PROJECT_ROOT}/qwen3-tts-cpp")
+set(GGML_DIR "${QWEN3_CPP_DIR}/ggml")
 set(OV_CPP_DIR "${PROJECT_ROOT}/omnivoice-cpp")
 
 # Pre-built libraries are expected at these paths.
 # Built by CI step: build-native-deps.sh or equivalent.
 set(QWEN3_BUILD_DIR "${QWEN3_CPP_DIR}/build")
-set(GGML_BUILD_DIR "${QWEN3_CPP_DIR}/ggml/build")
+set(GGML_BUILD_DIR "${GGML_DIR}/build")
 set(OV_BUILD_DIR "${OV_CPP_DIR}/build")
 
 # Our JNI source

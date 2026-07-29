@@ -34,10 +34,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Setup Android NDK
+        id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r27c
-          add-to-path: false
+          add-to-path: true
 
       - name: Setup JDK 17
         uses: actions/setup-java@v4
@@ -47,13 +48,15 @@ jobs:
           cache: 'gradle'
 
       - name: Install Ninja
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ninja-build
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ninja-build cmake
 
       - name: Build Native C++ Dependencies (GGML + qwen3-tts-cpp + omnivoice-cpp)
         run: |
-          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          echo "NDK_HOME from action: ${{ steps.setup-ndk.outputs.ANDROID_NDK_HOME }}"
+          export ANDROID_NDK_HOME="${{ steps.setup-ndk.outputs.ANDROID_NDK_HOME }}"
           chmod +x ./scripts/build-native-deps.sh
           ./scripts/build-native-deps.sh
+        shell: bash
 
       - name: Generate Native Android Project
         run: npx expo prebuild --platform android --clean
