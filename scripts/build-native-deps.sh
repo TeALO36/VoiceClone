@@ -97,7 +97,8 @@ cd "$PROJECT_ROOT/qwen3-tts-cpp"
 mkdir -p build
 "${CMAKE}" -S . -B build \
     "${CMAKE_ARGS[@]}" \
-    -DQWEN3_TTS_TIMING=OFF -DQWEN3_TTS_COREML=OFF
+    -DQWEN3_TTS_TIMING=OFF -DQWEN3_TTS_COREML=OFF \
+    -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG"
 # Build the shared lib (includes static deps automatically)
 "${CMAKE}" --build build --target qwen3tts_shared -j "${JOBS}"
 echo "qwen3-tts-cpp built ✓"
