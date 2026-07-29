@@ -46,6 +46,15 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
+      - name: Install Ninja
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ninja-build
+
+      - name: Build Native C++ Dependencies (GGML + qwen3-tts-cpp + omnivoice-cpp)
+        run: |
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          chmod +x ./scripts/build-native-deps.sh
+          ./scripts/build-native-deps.sh
+
       - name: Generate Native Android Project
         run: npx expo prebuild --platform android --clean
 
