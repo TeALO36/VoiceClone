@@ -111,6 +111,9 @@ mkdir -p build
 # Build the shared lib (includes static deps automatically)
 "${CMAKE}" --build build --target qwen3tts_shared -j "${JOBS}"
 echo "qwen3-tts-cpp built ✓"
+echo "  Output files in build/:"
+ls -la build/libqwen3tts* 2>/dev/null || echo "  (WARNING: libqwen3tts* not found - listing build/)"
+ls -la build/ 2>/dev/null | head -20
 
 # ---- 3. Build omnivoice-cpp (if available) ----
 echo ""
@@ -131,5 +134,14 @@ else
     echo "omnivoice-cpp submodule not found, skipping"
 fi
 
+echo "GGML output:"
+ls -la "$PROJECT_ROOT/qwen3-tts-cpp/ggml/build/src/"*.a 2>/dev/null || echo "  (no .a files)"
+ls -la "$PROJECT_ROOT/qwen3-tts-cpp/ggml/build/src/"*.so 2>/dev/null || echo "  (no .so files)"
+echo "Qwen3-TTS output:"
+ls -la "$PROJECT_ROOT/qwen3-tts-cpp/build/"*.so 2>/dev/null || echo "  (no .so files)"
+ls -la "$PROJECT_ROOT/qwen3-tts-cpp/build/"*.a 2>/dev/null || echo "  (no .a files)"
+echo "OmniVoice output:"
+ls -la "$PROJECT_ROOT/omnivoice-cpp/build/"*.so 2>/dev/null || echo "  (no .so files)"
+ls -la "$PROJECT_ROOT/omnivoice-cpp/build/"*.a 2>/dev/null || echo "  (no .a files)"
 echo ""
-echo "=== All native dependencies built successfully ==="
+echo "=== All native dependencies built ==="

@@ -9,9 +9,11 @@ set(QWEN3_CPP_DIR "${PROJECT_ROOT}/qwen3-tts-cpp")
 set(GGML_DIR "${QWEN3_CPP_DIR}/ggml")
 set(OV_CPP_DIR "${PROJECT_ROOT}/omnivoice-cpp")
 
-# Pre-built libraries (built by CI: build-native-deps.sh)
+# Pre-built libraries (built by CI: scripts/build-native-deps.sh)
+# qwen3-tts-cpp OUTPUT_NAME is "qwen3tts" (line 183 of its CMakeLists.txt)
+# so libqwen3tts.so is produced, NOT libqwen3tts_shared.so
 set(QWEN3_BUILD_DIR "${QWEN3_CPP_DIR}/build")
-set(GGML_BUILD_DIR "${GGML_DIR}/build")
+set(GGML_BUILD_DIR "${GGML_DIR}/build/src")
 set(OV_BUILD_DIR "${OV_CPP_DIR}/build")
 
 # Our JNI source
@@ -38,26 +40,16 @@ if(OMNIVOICE_AVAILABLE)
     target_include_directories(qwen3tts PRIVATE ${OV_CPP_DIR}/src)
 endif()
 
-# qwen3tts_shared is a pre-built shared library that contains ALL qwen3-tts-cpp
-# symbols (qwen3_tts, text_tokenizer, tts_transformer, audio_tokenizer_encoder,
-# audio_tokenizer_decoder are all linked INTO it as PRIVATE dependencies).
-# GGML libs are separate shared libraries.
-#
-# Build order in CI:
-#   1. scripts/build-native-deps.sh → produces these libraries
-#   2. expo prebuild → copies this CMakeLists.txt
-#   3. Gradle → calls CMake → links our JNI code against pre-built libs
-
+# libqwen3tts.so (from qwen3tts_shared target, OUTPUT_NAME="qwen3tts")
+# already contains ALL symbols: ggml, text_tokenizer, tts_transformer,
+# audio_tokenizer_encoder, audio_tokenizer_decoder.
+# We only need to link against it — GGML libs are embedded inside.
 target_link_directories(qwen3tts PRIVATE
     ${QWEN3_BUILD_DIR}
-    ${GGML_BUILD_DIR}/src
 )
 
 target_link_libraries(qwen3tts
-    qwen3tts_shared
-    ggml
-    ggml-base
-    ggml-cpu
+    qwen3tts
     log
     atomic
     m
