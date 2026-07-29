@@ -80,18 +80,72 @@ endif()
 message(STATUS "qwen3-tts-cpp built successfully at ${QWEN3_BUILD_DIR}")
 
 # ============================================================
-# Step 3: Build our JNI shared library
+# Step 3: Build OmniVoice C library
 # ============================================================
+set(OV_CPP_DIR "${PROJECT_ROOT}/omnivoice-cpp")
+set(OV_BUILD_DIR "${CMAKE_BINARY_DIR}/omnivoice")
+
+if(NOT EXISTS "${OV_BUILD_DIR}/CMakeCache.txt")
+    execute_process(
+        COMMAND ${CMAKE_COMMAND}
+            -S ${OV_CPP_DIR}
+            -B ${OV_BUILD_DIR}
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
+            -DANDROID_ABI=${ANDROID_ABI}
+            -DANDROID_PLATFORM=${ANDROID_PLATFORM}
+            -DANDROID_NDK=${ANDROID_NDK}
+        RESULT_VARIABLE OV_CFG_RESULT
+    )
+    if(NOT OV_CFG_RESULT EQUAL 0)
+        message(WARNING "OmniVoice CMake configure failed — skipping (will use Qwen3 only)")
+        set(OMNIVOICE_AVAILABLE OFF)
+    else()
+        set(OMNIVOICE_AVAILABLE ON)
+    endif()
+endif()
+
+if(OMNIVOICE_AVAILABLE)
+    execute_process(
+        COMMAND ${CMAKE_COMMAND} --build ${OV_BUILD_DIR} --target omnivoice -j8
+        RESULT_VARIABLE OV_BUILD_RESULT
+    )
+    if(NOT OV_BUILD_RESULT EQUAL 0)
+        message(WARNING "OmniVoice build failed — skipping")
+        set(OMNIVOICE_AVAILABLE OFF)
+    else()
+        message(STATUS "OmniVoice built successfully")
+    endif()
+endif()
+
+# ============================================================
+# Step 4: Build our JNI shared library (Qwen3 + OmniVoice)
+# ============================================================
+set(JNI_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/qwen3-tts-jni.cpp
+)
+
+if(OMNIVOICE_AVAILABLE)
+    list(APPEND JNI_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/omnivoice-jni.cpp)
+    add_compile_definitions(HAS_OMNIVOICE=1)
+endif()
+
 add_library(
     qwen3tts
     SHARED
-    ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/qwen3-tts-jni.cpp
+    ${JNI_SOURCES}
 )
 
 target_include_directories(qwen3tts PRIVATE
     ${QWEN3_CPP_DIR}/src
     ${GGML_DIR}/include
 )
+
+if(OMNIVOICE_AVAILABLE)
+    target_include_directories(qwen3tts PRIVATE
+        ${OV_CPP_DIR}/src
+    )
+endif()
 
 target_link_directories(qwen3tts PRIVATE
     ${QWEN3_BUILD_DIR}
@@ -110,3 +164,8 @@ target_link_libraries(qwen3tts
     ggml-cpu
     log
 )
+
+if(OMNIVOICE_AVAILABLE)
+    target_link_directories(qwen3tts PRIVATE ${OV_BUILD_DIR})
+    target_link_libraries(qwen3tts PUBLIC omnivoice)
+endif()

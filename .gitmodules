@@ -1,3 +1,6 @@
 [submodule "qwen3-tts-cpp"]
 	path = qwen3-tts-cpp
 	url = https://github.com/predict-woo/qwen3-tts.cpp.git
+[submodule "omnivoice-cpp"]
+	path = omnivoice-cpp
+	url = https://github.com/ServeurpersoCom/omnivoice.cpp.git

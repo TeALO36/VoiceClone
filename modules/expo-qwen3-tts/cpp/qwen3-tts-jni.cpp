@@ -15,12 +15,26 @@
 
 #include "qwen3tts_c_api.h"
 
+// Forward declarations for OmniVoice JNI (omnivoice-jni.cpp)
+// These are only available when HAS_OMNIVOICE is defined
+extern "C" {
+    JNIEXPORT jboolean JNICALL Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_omnivoiceInitModel(JNIEnv*, jobject, jstring);
+    JNIEXPORT jfloatArray JNICALL Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_omnivoiceSynthesize(JNIEnv*, jobject, jstring, jstring);
+    JNIEXPORT jfloatArray JNICALL Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_omnivoiceCloneVoice(JNIEnv*, jobject, jstring, jstring, jstring);
+    JNIEXPORT void JNICALL Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_omnivoiceReleaseModel(JNIEnv*, jobject);
+    JNIEXPORT jboolean JNICALL Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_omnivoiceIsReady(JNIEnv*, jobject);
+    JNIEXPORT jint JNICALL Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_omnivoiceGetSampleRate(JNIEnv*, jobject);
+}
+
 #define LOG_TAG "Qwen3TtsJNI"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 static Qwen3Tts* g_tts = nullptr;
 static Qwen3TtsParams g_params;
+
+// Which engine is currently loaded: 0=none, 1=qwen3, 2=omnivoice
+static int g_engine = 0;
 
 static void init_default_params() {
     qwen3_tts_default_params(&g_params);
@@ -32,36 +46,46 @@ JNIEXPORT jboolean JNICALL
 Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeInitModel(
     JNIEnv* env, jobject thiz, jstring modelDir) {
 
-    if (g_tts) {
-        qwen3_tts_destroy(g_tts);
-        g_tts = nullptr;
+    if (g_tts) { qwen3_tts_destroy(g_tts); g_tts = nullptr; }
+    if (g_engine == 2) {
+        Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_omnivoiceReleaseModel(env, thiz);
     }
+    g_engine = 0;
 
     const char* path = env->GetStringUTFChars(modelDir, nullptr);
+
+    // Auto-detect engine: try Qwen3 first, then OmniVoice
     LOGD("Loading model from: %s", path);
 
     init_default_params();
     g_tts = qwen3_tts_create(path, g_params.n_threads);
 
-    env->ReleaseStringUTFChars(modelDir, path);
+    if (g_tts && qwen3_tts_is_loaded(g_tts)) {
+        g_engine = 1;
+        LOGD("Qwen3-TTS engine loaded");
+    } else {
+        if (g_tts) { qwen3_tts_destroy(g_tts); g_tts = nullptr; }
 
-    if (!g_tts) {
-        LOGE("Failed to load model");
-        return JNI_FALSE;
+#ifdef HAS_OMNIVOICE
+        if (Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_omnivoiceInitModel(env, thiz, modelDir)) {
+            g_engine = 2;
+            LOGD("OmniVoice engine loaded");
+        }
+#endif
     }
 
-    LOGD("Model loaded successfully");
-    return JNI_TRUE;
+    env->ReleaseStringUTFChars(modelDir, path);
+    return g_engine != 0 ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jfloatArray JNICALL
 Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeSynthesize(
     JNIEnv* env, jobject thiz, jstring text) {
 
-    if (!g_tts) {
-        LOGE("Model not loaded");
-        return nullptr;
+    if (g_engine == 2) {
+        return Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_omnivoiceSynthesize(env, thiz, text, nullptr);
     }
+    if (!g_tts) { LOGE("Model not loaded"); return nullptr; }
 
     const char* txt = env->GetStringUTFChars(text, nullptr);
     LOGD("Synthesizing: %s", txt);
@@ -88,10 +112,10 @@ JNIEXPORT jfloatArray JNICALL
 Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeCloneVoice(
     JNIEnv* env, jobject thiz, jstring text, jstring referencePath) {
 
-    if (!g_tts) {
-        LOGE("Model not loaded");
-        return nullptr;
+    if (g_engine == 2) {
+        return Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_omnivoiceCloneVoice(env, thiz, text, referencePath, nullptr);
     }
+    if (!g_tts) { LOGE("Model not loaded"); return nullptr; }
 
     const char* txt = env->GetStringUTFChars(text, nullptr);
     const char* ref = env->GetStringUTFChars(referencePath, nullptr);
@@ -120,16 +144,23 @@ Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeCloneVoice(
 JNIEXPORT void JNICALL
 Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeReleaseModel(
     JNIEnv* env, jobject thiz) {
+    if (g_engine == 2) {
+        Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_omnivoiceReleaseModel(env, thiz);
+    }
     if (g_tts) {
         qwen3_tts_destroy(g_tts);
         g_tts = nullptr;
-        LOGD("Model released");
     }
+    g_engine = 0;
+    LOGD("Model released");
 }
 
 JNIEXPORT jboolean JNICALL
 Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeIsModelReady(
     JNIEnv* env, jobject thiz) {
+    if (g_engine == 2) {
+        return Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_omnivoiceIsReady(env, thiz);
+    }
     return (g_tts && qwen3_tts_is_loaded(g_tts)) ? JNI_TRUE : JNI_FALSE;
 }
 
