@@ -9,31 +9,30 @@ set(QWEN3_CPP_DIR "${PROJECT_ROOT}/qwen3-tts-cpp")
 set(GGML_DIR "${QWEN3_CPP_DIR}/ggml")
 set(OV_CPP_DIR "${PROJECT_ROOT}/omnivoice-cpp")
 
-# Pre-built libraries (built by CI: scripts/build-native-deps.sh)
-# qwen3-tts-cpp OUTPUT_NAME is "qwen3tts" (line 183 of its CMakeLists.txt)
-# so libqwen3tts.so is produced, NOT libqwen3tts_shared.so
-set(QWEN3_BUILD_DIR "${QWEN3_CPP_DIR}/build")
 set(GGML_BUILD_DIR "${GGML_DIR}/build/src")
 set(OV_BUILD_DIR "${OV_CPP_DIR}/build")
 
-# Our JNI source & C API implementation
+# Source files for JNI and Qwen3-TTS engine
 set(JNI_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/qwen3-tts-jni.cpp
     ${QWEN3_CPP_DIR}/src/qwen3tts_c_api.cpp
+    ${QWEN3_CPP_DIR}/src/qwen3_tts.cpp
+    ${QWEN3_CPP_DIR}/src/text_tokenizer.cpp
+    ${QWEN3_CPP_DIR}/src/tts_transformer.cpp
+    ${QWEN3_CPP_DIR}/src/coreml_code_predictor_stub.cpp
+    ${QWEN3_CPP_DIR}/src/audio_tokenizer_encoder.cpp
+    ${QWEN3_CPP_DIR}/src/audio_tokenizer_decoder.cpp
+    ${QWEN3_CPP_DIR}/src/gguf_loader.cpp
 )
 
 # Check if OmniVoice libs exist
 set(OMNIVOICE_AVAILABLE OFF)
-if(EXISTS "${OV_BUILD_DIR}/libomnivoice.a" OR EXISTS "${OV_BUILD_DIR}/libomnivoice.so")
+if(EXISTS "${OV_BUILD_DIR}/libomnivoice.so" OR EXISTS "${OV_BUILD_DIR}/libomnivoice.a")
     list(APPEND JNI_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/omnivoice-jni.cpp)
     set(OMNIVOICE_AVAILABLE ON)
     add_compile_definitions(HAS_OMNIVOICE=1)
 endif()
 
-# 🔴 IMPORTANT: Our JNI target MUST have a DIFFERENT name than the
-# pre-built library libqwen3tts.so from qwen3-tts-cpp.
-# If both are named 'qwen3tts', CMake errors: "Target links to itself".
-# The JNI wrapper -> qwen3tts_jni, the pre-built engine -> qwen3tts
 add_library(qwen3tts_jni SHARED ${JNI_SOURCES})
 
 target_include_directories(qwen3tts_jni PRIVATE
@@ -45,18 +44,14 @@ if(OMNIVOICE_AVAILABLE)
     target_include_directories(qwen3tts_jni PRIVATE ${OV_CPP_DIR}/src)
 endif()
 
-set(QWEN3_LIB_FOUND OFF)
-if(EXISTS "${QWEN3_BUILD_DIR}/libqwen3tts.so" OR EXISTS "${QWEN3_BUILD_DIR}/libqwen3tts.a")
-    target_link_directories(qwen3tts_jni PRIVATE ${QWEN3_BUILD_DIR})
-    target_link_libraries(qwen3tts_jni PRIVATE qwen3tts)
-    set(QWEN3_LIB_FOUND ON)
-elseif(EXISTS "${QWEN3_BUILD_DIR}/libqwen3_tts.a" OR EXISTS "${QWEN3_BUILD_DIR}/libqwen3_tts.so")
-    target_link_directories(qwen3tts_jni PRIVATE ${QWEN3_BUILD_DIR})
-    target_link_libraries(qwen3tts_jni PRIVATE qwen3_tts)
-    set(QWEN3_LIB_FOUND ON)
-endif()
+target_link_directories(qwen3tts_jni PRIVATE
+    ${GGML_BUILD_DIR}
+)
 
 target_link_libraries(qwen3tts_jni PRIVATE
+    ggml
+    ggml-base
+    ggml-cpu
     log
     atomic
     m

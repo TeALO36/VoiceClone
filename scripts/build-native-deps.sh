@@ -86,7 +86,8 @@ cd "$PROJECT_ROOT/qwen3-tts-cpp"
 mkdir -p ggml/build
 "${CMAKE}" -S ggml -B ggml/build \
     "${CMAKE_ARGS[@]}" \
-    -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DGGML_CPU_ALL_WARNINGS=OFF
+    -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DGGML_CPU_ALL_WARNINGS=OFF \
+    -DBUILD_SHARED_LIBS=ON -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 "${CMAKE}" --build ggml/build -j "${JOBS}"
 echo "GGML built ✓"
 
