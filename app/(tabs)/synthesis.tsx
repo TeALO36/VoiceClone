@@ -1,40 +1,31 @@
-import { ScrollView, Text, View, Pressable, TextInput, FlatList, Alert } from 'react-native';
+import { ScrollView, Text, View, Pressable, TextInput, FlatList, Alert, ActivityIndicator } from 'react-native';
 import { ScreenContainer } from '@/components/screen-container';
 import { useTTS } from '@/lib/context/tts-context';
 import { useColors } from '@/hooks/use-colors';
+import { AudioPlayer } from '@/components/audio-player';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
-import { localTtsService, LocalTTSOptions } from '@/lib/services/local-tts';
+import { localTtsService, VOICE_PRESETS, getSupportedLanguages, LocalTTSResult } from '@/lib/services/local-tts';
 
-const VOICE_PRESETS = [
-  { id: 'male-neutral', name: 'Homme neutre', emoji: '👨' },
-  { id: 'female-neutral', name: 'Femme neutre', emoji: '👩' },
-  { id: 'male-deep', name: 'Homme grave', emoji: '🧔' },
-  { id: 'female-bright', name: 'Femme claire', emoji: '👧' },
-  { id: 'child', name: 'Enfant', emoji: '👦' },
-];
+const VOICE_LIST = Object.entries(VOICE_PRESETS).map(([id, preset]) => ({
+  id,
+  name: preset.label,
+  emoji: preset.emoji,
+}));
 
-const LANGUAGES = [
-  { id: 'fr', name: 'Français' },
-  { id: 'en', name: 'English' },
-  { id: 'es', name: 'Español' },
-  { id: 'de', name: 'Deutsch' },
-  { id: 'it', name: 'Italiano' },
-  { id: 'ja', name: '日本語' },
-  { id: 'zh', name: '中文' },
-];
+const LANGUAGES = getSupportedLanguages();
 
 export default function SynthesisScreen() {
   const colors = useColors();
-  const { installedModels, isInitialized } = useTTS();
-  
+  const { installedModels } = useTTS();
+
   const [text, setText] = useState('');
   const [selectedModel, setSelectedModel] = useState('qwen3');
   const [selectedLanguage, setSelectedLanguage] = useState('fr');
   const [selectedVoice, setSelectedVoice] = useState('male-neutral');
   const [selectedQuality, setSelectedQuality] = useState<'fast' | 'normal' | 'high'>('normal');
   const [isLoading, setIsLoading] = useState(false);
-  const [synthesisResult, setSynthesisResult] = useState<any>(null);
+  const [synthesisResult, setSynthesisResult] = useState<LocalTTSResult | null>(null);
 
   const handleSynthesize = async () => {
     if (!text.trim()) {
@@ -42,20 +33,16 @@ export default function SynthesisScreen() {
       return;
     }
 
-    // No API key required - TTS runs locally
-
     setIsLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      const options: LocalTTSOptions = {
+      const result = await localTtsService.synthesize({
         text: text.trim(),
         language: selectedLanguage,
         voicePreset: selectedVoice,
-        quality: selectedQuality as 'fast' | 'normal' | 'high',
-      };
-
-      const result = await localTtsService.synthesize(options);
+        quality: selectedQuality,
+      });
       setSynthesisResult(result);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
@@ -73,6 +60,7 @@ export default function SynthesisScreen() {
         {/* Header */}
         <View className="px-6 pt-6 pb-4">
           <Text className="text-2xl font-bold text-foreground">Synthèse vocale</Text>
+          <Text className="text-sm text-muted mt-1">Entrez du texte et choisissez votre voix</Text>
         </View>
 
         {/* Model Selection */}
@@ -131,6 +119,7 @@ export default function SynthesisScreen() {
                 ]}
                 className="rounded-lg p-3 border border-border"
               >
+                <Text className="text-lg text-center mb-1">{item.flag}</Text>
                 <Text
                   className={selectedLanguage === item.id ? 'text-white font-semibold text-center text-xs' : 'text-foreground font-semibold text-center text-xs'}
                 >
@@ -145,7 +134,7 @@ export default function SynthesisScreen() {
         <View className="px-6 mb-6">
           <Text className="text-sm font-semibold text-foreground mb-3">Voix</Text>
           <FlatList
-            data={VOICE_PRESETS}
+            data={VOICE_LIST}
             keyExtractor={(item) => item.id}
             scrollEnabled={false}
             renderItem={({ item }) => (
@@ -167,9 +156,45 @@ export default function SynthesisScreen() {
                 <Text className={selectedVoice === item.id ? 'text-primary font-semibold flex-1' : 'text-foreground font-semibold flex-1'}>
                   {item.name}
                 </Text>
+                {selectedVoice === item.id && (
+                  <Text className="text-primary text-lg">✓</Text>
+                )}
               </Pressable>
             )}
           />
+        </View>
+
+        {/* Quality Selection */}
+        <View className="px-6 mb-6">
+          <Text className="text-sm font-semibold text-foreground mb-3">Qualité</Text>
+          <View className="flex-row gap-2">
+            {[
+              { id: 'fast', label: 'Rapide' },
+              { id: 'normal', label: 'Normal' },
+              { id: 'high', label: 'Haute' },
+            ].map((q) => (
+              <Pressable
+                key={q.id}
+                onPress={() => {
+                  setSelectedQuality(q.id as 'fast' | 'normal' | 'high');
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
+                style={({ pressed }) => [
+                  {
+                    backgroundColor: selectedQuality === q.id ? colors.primary : colors.surface,
+                    opacity: pressed ? 0.8 : 1,
+                  },
+                ]}
+                className="flex-1 rounded-lg p-2 border border-border"
+              >
+                <Text
+                  className={selectedQuality === q.id ? 'text-white font-semibold text-center text-sm' : 'text-foreground font-semibold text-center text-sm'}
+                >
+                  {q.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
         </View>
 
         {/* Text Input */}
@@ -183,7 +208,7 @@ export default function SynthesisScreen() {
             multiline
             numberOfLines={6}
             className="bg-surface border border-border rounded-lg p-4 text-foreground"
-            style={{ textAlignVertical: 'top' }}
+            style={{ textAlignVertical: 'top', minHeight: 120 }}
           />
           <Text className="text-xs text-muted mt-2">{text.length} caractères</Text>
         </View>
@@ -200,31 +225,24 @@ export default function SynthesisScreen() {
                 transform: [{ scale: pressed ? 0.97 : 1 }],
               },
             ]}
-            className="rounded-xl p-4"
+            className="rounded-xl p-4 flex-row items-center justify-center"
           >
+            {isLoading && <ActivityIndicator color="white" style={{ marginRight: 8 }} />}
             <Text className="text-white font-semibold text-center text-lg">
-              {isLoading ? 'Synthèse en cours...' : 'Synthétiser'}
+              {isLoading ? 'Synthèse en cours...' : '🔊 Synthétiser'}
             </Text>
           </Pressable>
         </View>
 
-        {/* Result */}
+        {/* Result with working audio player */}
         {synthesisResult && (
           <View className="px-6">
             <View className="bg-success/10 border border-success rounded-xl p-4">
-              <Text className="text-success font-semibold mb-2">✓ Synthèse réussie</Text>
-              <Text className="text-foreground text-sm">
-                Durée: {synthesisResult.duration.toFixed(2)}s
+              <Text className="text-success font-semibold mb-1">✓ Synthèse réussie</Text>
+              <Text className="text-foreground text-sm mb-1">
+                Langue: {synthesisResult.language} | Voix: {VOICE_PRESETS[synthesisResult.voicePreset]?.label || 'Clonée'}
               </Text>
-              <Pressable
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  // Play audio
-                }}
-                className="mt-3 bg-success rounded-lg p-2"
-              >
-                <Text className="text-white font-semibold text-center">▶ Écouter</Text>
-              </Pressable>
+              <AudioPlayer result={synthesisResult} />
             </View>
           </View>
         )}

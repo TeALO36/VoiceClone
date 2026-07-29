@@ -1,21 +1,34 @@
-import { ScrollView, Text, View, Pressable, FlatList, Alert } from 'react-native';
+import { ScrollView, Text, View, Pressable, FlatList, Alert, ActivityIndicator } from 'react-native';
 import { ScreenContainer } from '@/components/screen-container';
 import { useTTS } from '@/lib/context/tts-context';
 import { useColors } from '@/hooks/use-colors';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
+import { useRouter } from 'expo-router';
+import { TTSModel } from '@/lib/services/models';
 
 export default function ModelsManagerScreen() {
   const colors = useColors();
-  const { installedModels, availableModels, downloadingModels, downloadModel, deleteModel, totalStorageUsed, refreshStorageInfo } = useTTS();
-  const [activeTab, setActiveTab] = useState<'installed' | 'available'>('installed');
+  const router = useRouter();
+  const { installedModels, availableModels, downloadingModels, downloadModel, deleteModel, totalStorageUsed } = useTTS();
+  const [activeTab, setActiveTab] = useState<'installed' | 'available'>('available');
 
-  const handleDownloadModel = async (modelId: string) => {
+  const handleDownloadModel = async (modelId: string, modelName: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    try {
-      await downloadModel(modelId);
+
+    // ─── Prevent duplicate install — double check ───
+    const alreadyInstalled = installedModels.some((m) => m.id === modelId);
+    if (alreadyInstalled) {
+      Alert.alert('Déjà installé', `"${modelName}" est déjà installé.`);
+      return;
+    }
+
+    const success = await downloadModel(modelId);
+    if (success) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error) {
+      // Switch to installed tab to show the newly installed model
+      setActiveTab('installed');
+    } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Erreur', 'Impossible de télécharger le modèle');
     }
@@ -31,11 +44,10 @@ export default function ModelsManagerScreen() {
           text: 'Supprimer',
           onPress: async () => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            try {
-              await deleteModel(modelId);
-              await refreshStorageInfo();
+            const success = await deleteModel(modelId);
+            if (success) {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            } catch (error) {
+            } else {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
               Alert.alert('Erreur', 'Impossible de supprimer le modèle');
             }
@@ -54,7 +66,7 @@ export default function ModelsManagerScreen() {
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
   };
 
-  const renderModelCard = (model: any, isInstalled: boolean) => {
+  const renderModelCard = (model: TTSModel, isInstalled: boolean) => {
     const downloadProgress = downloadingModels[model.id];
     const isDownloading = downloadProgress !== undefined;
 
@@ -70,14 +82,14 @@ export default function ModelsManagerScreen() {
 
         {/* Languages */}
         <View className="flex-row gap-1 flex-wrap mb-3">
-          {model.languages.slice(0, 2).map((lang: string) => (
+          {model.languages.slice(0, 3).map((lang) => (
             <View key={lang} className="bg-primary/20 rounded-full px-2 py-1">
               <Text className="text-xs text-primary font-medium">{lang}</Text>
             </View>
           ))}
-          {model.languages.length > 2 && (
+          {model.languages.length > 3 && (
             <View className="bg-primary/20 rounded-full px-2 py-1">
-              <Text className="text-xs text-primary font-medium">+{model.languages.length - 2}</Text>
+              <Text className="text-xs text-primary font-medium">+{model.languages.length - 3}</Text>
             </View>
           )}
         </View>
@@ -86,7 +98,7 @@ export default function ModelsManagerScreen() {
         {isDownloading && (
           <View className="mb-3">
             <View className="flex-row justify-between items-center mb-1">
-              <Text className="text-xs text-muted">Téléchargement</Text>
+              <Text className="text-xs text-muted">Téléchargement...</Text>
               <Text className="text-xs text-muted">{downloadProgress}%</Text>
             </View>
             <View className="h-2 bg-border rounded-full overflow-hidden">
@@ -105,6 +117,7 @@ export default function ModelsManagerScreen() {
               <Pressable
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push('/(tabs)/synthesis');
                 }}
                 className="flex-1 bg-primary rounded-lg p-2"
               >
@@ -119,7 +132,7 @@ export default function ModelsManagerScreen() {
             </>
           ) : (
             <Pressable
-              onPress={() => handleDownloadModel(model.id)}
+              onPress={() => handleDownloadModel(model.id, model.name)}
               disabled={isDownloading}
               style={({ pressed }) => [
                 {
@@ -127,10 +140,11 @@ export default function ModelsManagerScreen() {
                   opacity: pressed ? 0.9 : 1,
                 },
               ]}
-              className="flex-1 rounded-lg p-2"
+              className="flex-1 rounded-lg p-2 flex-row items-center justify-center"
             >
+              {isDownloading && <ActivityIndicator color="white" size="small" style={{ marginRight: 6 }} />}
               <Text className="text-white font-semibold text-center text-sm">
-                {isDownloading ? `Téléchargement (${downloadProgress}%)` : 'Installer'}
+                {isDownloading ? `Téléchargement ${downloadProgress}%` : 'Installer'}
               </Text>
             </Pressable>
           )}
@@ -168,26 +182,6 @@ export default function ModelsManagerScreen() {
         <View className="px-6 mb-6 flex-row gap-3">
           <Pressable
             onPress={() => {
-              setActiveTab('installed');
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            }}
-            style={({ pressed }) => [
-              {
-                backgroundColor: activeTab === 'installed' ? colors.primary : colors.surface,
-                opacity: pressed ? 0.8 : 1,
-              },
-            ]}
-            className="flex-1 rounded-lg p-3 border border-border"
-          >
-            <Text
-              className={activeTab === 'installed' ? 'text-white font-semibold text-center' : 'text-foreground font-semibold text-center'}
-            >
-              Installés ({installedModels.length})
-            </Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => {
               setActiveTab('available');
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             }}
@@ -205,6 +199,26 @@ export default function ModelsManagerScreen() {
               Disponibles ({availableModels.length})
             </Text>
           </Pressable>
+
+          <Pressable
+            onPress={() => {
+              setActiveTab('installed');
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }}
+            style={({ pressed }) => [
+              {
+                backgroundColor: activeTab === 'installed' ? colors.primary : colors.surface,
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+            className="flex-1 rounded-lg p-3 border border-border"
+          >
+            <Text
+              className={activeTab === 'installed' ? 'text-white font-semibold text-center' : 'text-foreground font-semibold text-center'}
+            >
+              Installés ({installedModels.length})
+            </Text>
+          </Pressable>
         </View>
 
         {/* Models List */}
@@ -219,9 +233,22 @@ export default function ModelsManagerScreen() {
                   renderItem={({ item }) => renderModelCard(item, true)}
                 />
               ) : (
-                <View className="items-center justify-center py-8">
+                <View className="items-center justify-center py-12">
+                  <Text className="text-4xl mb-3">📦</Text>
                   <Text className="text-lg text-muted">Aucun modèle installé</Text>
                   <Text className="text-sm text-muted mt-2">Installez un modèle pour commencer</Text>
+                  <Pressable
+                    onPress={() => {
+                      setActiveTab('available');
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }}
+                    style={({ pressed }) => [
+                      { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
+                    ]}
+                    className="mt-4 rounded-lg px-6 py-3"
+                  >
+                    <Text className="text-white font-semibold">Voir les modèles disponibles</Text>
+                  </Pressable>
                 </View>
               )}
             </>
@@ -235,8 +262,10 @@ export default function ModelsManagerScreen() {
                   renderItem={({ item }) => renderModelCard(item, false)}
                 />
               ) : (
-                <View className="items-center justify-center py-8">
-                  <Text className="text-lg text-muted">Aucun modèle disponible</Text>
+                <View className="items-center justify-center py-12">
+                  <Text className="text-4xl mb-3">✅</Text>
+                  <Text className="text-lg text-muted">Tous les modèles sont installés !</Text>
+                  <Text className="text-sm text-muted mt-2">Aucun modèle supplémentaire disponible</Text>
                 </View>
               )}
             </>

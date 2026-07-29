@@ -1,116 +1,109 @@
-import { ScrollView, Text, View, Pressable, Alert, ActivityIndicator, TextInput } from 'react-native';
+import { ScrollView, Text, View, Pressable, Alert, ActivityIndicator, TextInput, FlatList } from 'react-native';
 import { ScreenContainer } from '@/components/screen-container';
 import { useColors } from '@/hooks/use-colors';
+import { AudioPlayer } from '@/components/audio-player';
 import * as Haptics from 'expo-haptics';
 import { useState, useEffect } from 'react';
-import { videoToAudioService } from '@/lib/services/video-to-audio';
-import { localTtsService } from '@/lib/services/local-tts';
+import * as DocumentPicker from 'expo-document-picker';
+import { videoToAudioService, MediaFileInfo } from '@/lib/services/video-to-audio';
+import { localTtsService, getSupportedLanguages, LocalTTSResult } from '@/lib/services/local-tts';
 
 const QUALITY_LEVELS = [
-  { id: 'fast', label: 'Rapide', description: '~1s' },
-  { id: 'normal', label: 'Normal', description: '~3s' },
-  { id: 'high', label: 'Haute qualité', description: '~5s' },
+  { id: 'fast', label: 'Rapide', description: 'Synthèse plus rapide, qualité réduite' },
+  { id: 'normal', label: 'Normal', description: 'Bon équilibre vitesse/qualité' },
+  { id: 'high', label: 'Haute qualité', description: 'Meilleure qualité, plus lent' },
 ];
+
+const LANGUAGES = getSupportedLanguages();
 
 export default function VoiceCloningScreen() {
   const colors = useColors();
-  const [selectedFile, setSelectedFile] = useState<any>(null);
+  const [selectedFile, setSelectedFile] = useState<MediaFileInfo | null>(null);
   const [isConverting, setIsConverting] = useState(false);
   const [conversionProgress, setConversionProgress] = useState(0);
-  const [convertedAudio, setConvertedAudio] = useState<any>(null);
-  const [selectedQuality, setSelectedQuality] = useState('normal');
+  const [isReady, setIsReady] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState('fr');
+  const [selectedQuality, setSelectedQuality] = useState<'fast' | 'normal' | 'high'>('normal');
   const [isCloning, setIsCloning] = useState(false);
-  const [cloningResult, setCloningResult] = useState<any>(null);
+  const [cloningResult, setCloningResult] = useState<LocalTTSResult | null>(null);
   const [cloneText, setCloneText] = useState('');
 
+  // ─── Real file picker using expo-document-picker ───
   const handlePickFile = async () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      
-      Alert.alert(
-        'Sélectionner un fichier audio/vidéo',
-        'Choisissez un fichier MP3, WAV, MP4, WebM, etc.',
-        [
-          {
-            text: 'Annuler',
-            onPress: () => {},
-            style: 'cancel',
-          },
-          {
-            text: 'Simuler sélection MP4',
-            onPress: () => {
-              setSelectedFile({
-                name: 'voice-sample.mp4',
-                uri: 'file:///sample.mp4',
-                size: 5 * 1024 * 1024,
-                type: 'video/mp4',
-              });
-              setConvertedAudio(null);
-              setCloningResult(null);
-            },
-          },
-          {
-            text: 'Simuler sélection MP3',
-            onPress: () => {
-              setSelectedFile({
-                name: 'voice-sample.mp3',
-                uri: 'file:///sample.mp3',
-                size: 2 * 1024 * 1024,
-                type: 'audio/mpeg',
-              });
-              setConvertedAudio(null);
-              setCloningResult(null);
-            },
-          },
-        ]
-      );
+
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['audio/*', 'video/*', 'application/octet-stream'],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      const fileInfo = videoToAudioService.analyzeFile({
+        name: asset.name,
+        uri: asset.uri,
+        size: asset.size ?? 0,
+        mimeType: asset.mimeType,
+      });
+
+      if (!fileInfo.isVideo && !fileInfo.isAudio) {
+        Alert.alert('Format non supporté', 'Veuillez sélectionner un fichier audio (MP3, WAV, etc.) ou vidéo (MP4, WebM, etc.)');
+        return;
+      }
+
+      setSelectedFile(fileInfo);
+      setIsReady(false);
+      setCloningResult(null);
     } catch (error) {
       console.error('Error picking file:', error);
       Alert.alert('Erreur', 'Impossible de sélectionner le fichier');
     }
   };
 
-  // Auto-convert video to audio when file is selected
+  // ─── Auto-convert video to audio in background ───
   useEffect(() => {
-    if (selectedFile && !convertedAudio && !isConverting) {
-      const autoConvert = async () => {
-        // Check if it's a video file that needs conversion
-        if (videoToAudioService.isSupportedVideoFormat(selectedFile.name)) {
-          setIsConverting(true);
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (!selectedFile || isReady || isConverting) return;
 
-          try {
-            const result = await videoToAudioService.extractAudio(selectedFile.uri, (progress) => {
-              setConversionProgress(progress);
-            });
+    const autoConvert = async () => {
+      // If it's already audio, no conversion needed
+      if (selectedFile.isAudio) {
+        setIsReady(true);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        return;
+      }
 
-            setConvertedAudio(result);
-            setConversionProgress(0);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          } catch (error) {
-            console.error('Conversion error:', error);
-            Alert.alert('Erreur', 'Impossible de convertir la vidéo');
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          } finally {
-            setIsConverting(false);
-          }
-        } else if (videoToAudioService.isSupportedAudioFormat(selectedFile.name)) {
-          // Already audio, no conversion needed
-          setConvertedAudio({
-            audioUri: selectedFile.uri,
-            duration: 0,
-            format: selectedFile.name.split('.').pop()?.toLowerCase() || 'mp3',
-            timestamp: Date.now(),
+      // If it's video, convert to audio in background
+      if (selectedFile.isVideo) {
+        setIsConverting(true);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+        try {
+          await videoToAudioService.extractAudio(selectedFile.uri, (progress) => {
+            setConversionProgress(progress);
           });
-        }
-      };
 
-      autoConvert();
-    }
-  }, [selectedFile, convertedAudio, isConverting]);
+          setIsReady(true);
+          setConversionProgress(0);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch (error) {
+          console.error('Conversion error:', error);
+          Alert.alert('Erreur', 'Impossible de convertir la vidéo en audio');
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        } finally {
+          setIsConverting(false);
+        }
+      }
+    };
+
+    autoConvert();
+  }, [selectedFile, isReady, isConverting]);
 
   const handleCloneVoice = async () => {
-    if (!convertedAudio) {
+    if (!selectedFile || !isReady) {
       Alert.alert('Erreur', 'Veuillez d\'abord charger un fichier audio/vidéo');
       return;
     }
@@ -124,20 +117,18 @@ export default function VoiceCloningScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      // Clone voice using local TTS service
       const result = await localTtsService.cloneVoice(
-        convertedAudio.audioUri,
+        selectedFile.uri,
         cloneText.trim(),
-        selectedQuality as 'fast' | 'normal' | 'high'
+        {
+          language: selectedLanguage,
+          quality: selectedQuality,
+          fileName: selectedFile.name,
+          fileSize: selectedFile.size,
+        }
       );
 
-      setCloningResult({
-        success: true,
-        audioUri: result.audioUri,
-        duration: result.duration,
-        timestamp: result.timestamp,
-      });
-
+      setCloningResult(result);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       console.error('Cloning error:', error);
@@ -162,10 +153,10 @@ export default function VoiceCloningScreen() {
         {/* Header */}
         <View className="px-6 pt-6 pb-4">
           <Text className="text-2xl font-bold text-foreground">Clonage de voix</Text>
-          <Text className="text-sm text-muted mt-2">Créez une voix personnalisée à partir d'un échantillon</Text>
+          <Text className="text-sm text-muted mt-1">Créez une voix personnalisée à partir d'un échantillon</Text>
         </View>
 
-        {/* Step 1: Upload Audio/Video */}
+        {/* Step 1: Upload Audio/Video — single button, auto-detect format */}
         <View className="px-6 mb-6">
           <Text className="text-sm font-semibold text-foreground mb-3">Étape 1: Charger un fichier</Text>
           <Pressable
@@ -183,59 +174,89 @@ export default function VoiceCloningScreen() {
             {isConverting ? (
               <>
                 <ActivityIndicator size="large" color={colors.primary} />
-                <Text className="text-sm text-muted mt-3">Conversion {conversionProgress}%</Text>
+                <Text className="text-sm text-muted mt-3">
+                  {selectedFile?.isVideo ? `Conversion vidéo → audio ${conversionProgress}%` : 'Traitement...'}
+                </Text>
+              </>
+            ) : selectedFile ? (
+              <>
+                <Text className="text-4xl mb-3">{selectedFile.isVideo ? '🎬' : '🎵'}</Text>
+                <Text className="text-lg font-semibold text-foreground text-center">{selectedFile.name}</Text>
+                <Text className="text-sm text-muted text-center mt-2">
+                  {selectedFile.isVideo ? `Vidéo → Audio (${formatBytes(selectedFile.size)})` : `Audio (${formatBytes(selectedFile.size)})`}
+                </Text>
+                <Text className="text-xs text-primary text-center mt-2">Toucher pour changer de fichier</Text>
               </>
             ) : (
               <>
                 <Text className="text-4xl mb-3">🎤</Text>
-                <Text className="text-lg font-semibold text-foreground text-center">
-                  {selectedFile ? 'Fichier chargé' : 'Charger un fichier'}
-                </Text>
+                <Text className="text-lg font-semibold text-foreground text-center">Charger un fichier</Text>
                 <Text className="text-sm text-muted text-center mt-2">
-                  {selectedFile ? selectedFile.name : 'MP3, WAV, MP4, WebM, etc.'}
+                  Audio ou vidéo — détecté automatiquement
                 </Text>
               </>
             )}
           </Pressable>
         </View>
 
-        {/* File Info */}
-        {selectedFile && (
-          <View className="px-6 mb-6">
-            <View className="bg-surface rounded-xl p-4 border border-border">
-              <View className="flex-row justify-between items-center mb-2">
-                <Text className="text-sm font-semibold text-foreground">Fichier</Text>
-                <Text className="text-sm text-muted">{selectedFile.name}</Text>
-              </View>
-              <View className="flex-row justify-between items-center">
-                <Text className="text-sm font-semibold text-foreground">Taille</Text>
-                <Text className="text-sm text-muted">{formatBytes(selectedFile.size)}</Text>
-              </View>
-            </View>
-          </View>
-        )}
-
-        {/* Conversion Status */}
-        {convertedAudio && !isConverting && (
+        {/* Ready status */}
+        {isReady && (
           <View className="px-6 mb-6">
             <View className="bg-success/10 border border-success rounded-xl p-4">
-              <Text className="text-success font-semibold mb-2">✓ Fichier prêt</Text>
+              <Text className="text-success font-semibold mb-1">✓ Fichier prêt</Text>
               <Text className="text-sm text-foreground">
-                Format: {convertedAudio.format.toUpperCase()}
+                {selectedFile?.isVideo ? 'Vidéo convertie en audio' : 'Fichier audio chargé'} — prêt pour le clonage
               </Text>
             </View>
           </View>
         )}
 
-        {/* Step 2: Quality Selection */}
-        {convertedAudio && (
+        {/* Step 2: Language Selection */}
+        {isReady && (
           <View className="px-6 mb-6">
-            <Text className="text-sm font-semibold text-foreground mb-3">Étape 2: Qualité de clonage</Text>
+            <Text className="text-sm font-semibold text-foreground mb-3">Étape 2: Langue de synthèse</Text>
+            <FlatList
+              data={LANGUAGES}
+              keyExtractor={(item) => item.id}
+              scrollEnabled={false}
+              numColumns={3}
+              columnWrapperStyle={{ gap: 8, marginBottom: 8 }}
+              renderItem={({ item }) => (
+                <Pressable
+                  onPress={() => {
+                    setSelectedLanguage(item.id);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                  style={({ pressed }) => [
+                    {
+                      backgroundColor: selectedLanguage === item.id ? colors.primary : colors.surface,
+                      opacity: pressed ? 0.8 : 1,
+                      flex: 1,
+                    },
+                  ]}
+                  className="rounded-lg p-3 border border-border"
+                >
+                  <Text className="text-lg text-center mb-1">{item.flag}</Text>
+                  <Text
+                    className={selectedLanguage === item.id ? 'text-white font-semibold text-center text-xs' : 'text-foreground font-semibold text-center text-xs'}
+                  >
+                    {item.name}
+                  </Text>
+                </Pressable>
+              )}
+            />
+          </View>
+        )}
+
+        {/* Step 3: Quality Selection */}
+        {isReady && (
+          <View className="px-6 mb-6">
+            <Text className="text-sm font-semibold text-foreground mb-3">Étape 3: Qualité de clonage</Text>
             {QUALITY_LEVELS.map((level) => (
               <Pressable
                 key={level.id}
                 onPress={() => {
-                  setSelectedQuality(level.id);
+                  setSelectedQuality(level.id as 'fast' | 'normal' | 'high');
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 }}
                 style={({ pressed }) => [
@@ -263,10 +284,10 @@ export default function VoiceCloningScreen() {
           </View>
         )}
 
-        {/* Step 3: Test Text */}
-        {convertedAudio && (
+        {/* Step 4: Test Text */}
+        {isReady && (
           <View className="px-6 mb-6">
-            <Text className="text-sm font-semibold text-foreground mb-3">Étape 3: Texte à synthétiser</Text>
+            <Text className="text-sm font-semibold text-foreground mb-3">Étape 4: Texte à synthétiser</Text>
             <TextInput
               value={cloneText}
               onChangeText={setCloneText}
@@ -275,13 +296,14 @@ export default function VoiceCloningScreen() {
               multiline
               numberOfLines={4}
               className="bg-surface border border-border rounded-lg p-4 text-foreground"
-              style={{ textAlignVertical: 'top' }}
+              style={{ textAlignVertical: 'top', minHeight: 100 }}
             />
+            <Text className="text-xs text-muted mt-2">{cloneText.length} caractères</Text>
           </View>
         )}
 
         {/* Clone Button */}
-        {convertedAudio && (
+        {isReady && (
           <View className="px-6 mb-6">
             <Pressable
               onPress={handleCloneVoice}
@@ -303,34 +325,26 @@ export default function VoiceCloningScreen() {
           </View>
         )}
 
-        {/* Result */}
+        {/* Result with working audio player */}
         {cloningResult && (
-          <View className="px-6">
+          <View className="px-6 mb-6">
             <View className="bg-success/10 border border-success rounded-xl p-4">
-              <Text className="text-success font-semibold mb-3">✓ Voix clonée avec succès!</Text>
-              <View className="bg-surface rounded-lg p-3 mb-3">
-                <View className="flex-row justify-between items-center">
-                  <Text className="text-sm font-semibold text-foreground">Durée</Text>
-                  <Text className="text-xs text-muted font-mono">{cloningResult.duration.toFixed(2)}s</Text>
-                </View>
-              </View>
-              <Pressable
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-                className="bg-success rounded-lg p-2"
-              >
-                <Text className="text-white font-semibold text-center">▶ Écouter la synthèse</Text>
-              </Pressable>
+              <Text className="text-success font-semibold mb-2">✓ Voix clonée avec succès !</Text>
+              <Text className="text-sm text-foreground mb-1">
+                Langue: {cloningResult.language} | Pitch: {cloningResult.pitch.toFixed(2)}
+              </Text>
+              <AudioPlayer result={cloningResult} label="Écouter la voix clonée" />
             </View>
           </View>
         )}
 
         {/* Info */}
-        <View className="px-6 mt-8">
+        <View className="px-6 mt-4">
           <View className="bg-primary/10 rounded-xl p-4 border border-primary/20">
             <Text className="text-primary font-semibold mb-2">💡 Conseils</Text>
-            <Text className="text-sm text-foreground">• Utilisez un échantillon audio de 3-10 secondes{'\n'}• Voix claire et sans bruit de fond{'\n'}• Formats supportés: MP3, WAV, MP4, WebM</Text>
+            <Text className="text-sm text-foreground">
+              {'• Échantillon audio de 3-10 secondes idéal\n• Voix claire et sans bruit de fond\n• Audio ou vidéo détecté automatiquement\n• La conversion vidéo → audio se fait en arrière-plan'}
+            </Text>
           </View>
         </View>
       </ScrollView>

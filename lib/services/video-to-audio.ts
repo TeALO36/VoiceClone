@@ -1,127 +1,70 @@
-import { File, Paths } from 'expo-file-system/next';
+/**
+ * Video-to-audio conversion service.
+ * Detects file format and simulates conversion in background.
+ * In production, this would use ffmpeg-native or a server-side service.
+ */
 
-export interface VideoExtractionResult {
-  audioUri: string;
-  duration: number;
-  format: 'mp3' | 'wav';
-  timestamp: number;
+const VIDEO_EXTENSIONS = ['mp4', 'webm', 'mov', 'avi', 'mkv', 'flv', 'm4v', '3gp'];
+const AUDIO_EXTENSIONS = ['mp3', 'wav', 'aac', 'm4a', 'flac', 'ogg', 'opus', 'wma'];
+
+export interface MediaFileInfo {
+  name: string;
+  uri: string;
+  size: number;
+  mimeType: string;
+  isVideo: boolean;
+  isAudio: boolean;
 }
 
 class VideoToAudioService {
+  isVideoFile(filename: string): boolean {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    return VIDEO_EXTENSIONS.includes(ext);
+  }
+
+  isAudioFile(filename: string): boolean {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    return AUDIO_EXTENSIONS.includes(ext);
+  }
+
+  isSupportedFile(filename: string): boolean {
+    return this.isVideoFile(filename) || this.isAudioFile(filename);
+  }
+
   /**
-   * Extract audio from a video file (MP4, WebM, etc.)
-   * Note: This is a placeholder implementation. In production, you would use
-   * native modules or a server-side service to handle video processing.
+   * Analyze a picked file and return its media info.
+   */
+  analyzeFile(file: { name: string; uri: string; size: number; mimeType?: string }): MediaFileInfo {
+    return {
+      name: file.name,
+      uri: file.uri,
+      size: file.size,
+      mimeType: file.mimeType || (this.isVideoFile(file.name) ? 'video/mp4' : 'audio/mpeg'),
+      isVideo: this.isVideoFile(file.name),
+      isAudio: this.isAudioFile(file.name),
+    };
+  }
+
+  /**
+   * Convert a video file to audio.
+   * Simulated — in production would use react-native-ffmpeg or similar.
+   * Returns the same URI (the reference audio is used conceptually for voice cloning).
    */
   async extractAudio(
     videoUri: string,
     onProgress?: (progress: number) => void
-  ): Promise<VideoExtractionResult> {
-    try {
-      // Simulate extraction progress
-      for (let i = 0; i <= 100; i += 10) {
-        await new Promise((resolve) => setTimeout(resolve, 300));
-        onProgress?.(i);
-      }
-
-      // In a real implementation, you would:
-      // 1. Use a native module like react-native-ffmpeg
-      // 2. Or send the video to a backend server for processing
-      // 3. Or use expo-av's video capabilities
-
-      const timestamp = Date.now();
-      const filename = `extracted_${timestamp}.mp3`;
-      const file = new File(Paths.cache, filename);
-
-      // Create a dummy audio file for demonstration
-      await file.write('');
-
-      return {
-        audioUri: file.uri,
-        duration: 0, // Would be extracted from video metadata
-        format: 'mp3',
-        timestamp,
-      };
-    } catch (error) {
-      console.error('Failed to extract audio from video:', error);
-      throw error;
+  ): Promise<{ audioUri: string; duration: number; format: string; timestamp: number }> {
+    for (let i = 0; i <= 100; i += 10) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      onProgress?.(i);
     }
-  }
 
-  /**
-   * Get video metadata (duration, format, etc.)
-   */
-  async getVideoMetadata(videoUri: string): Promise<{
-    duration: number;
-    width: number;
-    height: number;
-    format: string;
-  }> {
-    try {
-      // Placeholder implementation
-      // In production, use native video processing or server API
-      return {
-        duration: 0,
-        width: 0,
-        height: 0,
-        format: 'mp4',
-      };
-    } catch (error) {
-      console.error('Failed to get video metadata:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Convert audio format (e.g., WAV to MP3)
-   */
-  async convertAudioFormat(
-    inputUri: string,
-    outputFormat: 'mp3' | 'wav',
-    onProgress?: (progress: number) => void
-  ): Promise<VideoExtractionResult> {
-    try {
-      // Simulate conversion progress
-      for (let i = 0; i <= 100; i += 10) {
-        await new Promise((resolve) => setTimeout(resolve, 300));
-        onProgress?.(i);
-      }
-
-      const timestamp = Date.now();
-      const filename = `converted_${timestamp}.${outputFormat}`;
-      const file = new File(Paths.cache, filename);
-
-      // Placeholder: copy input to output
-      await file.write('');
-
-      return {
-        audioUri: file.uri,
-        duration: 0,
-        format: outputFormat,
-        timestamp,
-      };
-    } catch (error) {
-      console.error('Failed to convert audio format:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Validate if file is a supported video format
-   */
-  isSupportedVideoFormat(filename: string): boolean {
-    const supportedFormats = ['mp4', 'webm', 'mov', 'avi', 'mkv', 'flv'];
-    const extension = filename.split('.').pop()?.toLowerCase() || '';
-    return supportedFormats.includes(extension);
-  }
-
-  /**
-   * Validate if file is a supported audio format
-   */
-  isSupportedAudioFormat(filename: string): boolean {
-    const supportedFormats = ['mp3', 'wav', 'aac', 'm4a', 'flac', 'ogg'];
-    const extension = filename.split('.').pop()?.toLowerCase() || '';
-    return supportedFormats.includes(extension);
+    return {
+      audioUri: videoUri,
+      duration: 0,
+      format: 'mp3',
+      timestamp: Date.now(),
+    };
   }
 }
 
