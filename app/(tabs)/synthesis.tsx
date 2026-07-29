@@ -25,7 +25,6 @@ export default function SynthesisScreen() {
   const [selectedLanguage, setSelectedLanguage] = useState('fr');
   const [selectedVoice, setSelectedVoice] = useState('male-neutral');
   const [isLoading, setIsLoading] = useState(false);
-  const [isModelLoading, setIsModelLoading] = useState(false);
   const [synthesisResult, setSynthesisResult] = useState<Qwen3TtsResult | null>(null);
 
   const hasModels = installedModels.length > 0;
@@ -225,12 +224,12 @@ export default function SynthesisScreen() {
               <>
                 <ActivityIndicator color="white" style={{ marginRight: 8 }} />
                 <Text className="text-white font-semibold text-center text-lg">
-                  Inférence en cours... (Qwen3-TTS local)
+                  Inférence en cours... (modèle local)
                 </Text>
               </>
             ) : (
               <Text className="text-white font-semibold text-center text-lg">
-                🔊 Synthétiser (Qwen3-TTS on-device)
+                🔊 Synthétiser (on-device)
               </Text>
             )}
           </Pressable>
@@ -240,7 +239,7 @@ export default function SynthesisScreen() {
         {synthesisResult && (
           <View className="px-6">
             <View className="bg-success/10 border border-success rounded-xl p-4">
-              <Text className="text-success font-semibold mb-1">✓ Synthèse réussie (Qwen3-TTS)</Text>
+              <Text className="text-success font-semibold mb-1">✓ Synthèse réussie</Text>
               <Text className="text-foreground text-sm mb-1">
                 {synthesisResult.sampleRate}Hz · {synthesisResult.frameCount} frames · {synthesisResult.duration.toFixed(1)}s
               </Text>

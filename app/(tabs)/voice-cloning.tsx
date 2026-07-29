@@ -4,7 +4,7 @@ import { useTTS } from '@/lib/context/tts-context';
 import { useColors } from '@/hooks/use-colors';
 import { AudioPlayer } from '@/components/audio-player';
 import * as Haptics from 'expo-haptics';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import * as DocumentPicker from 'expo-document-picker';
 import { getSupportedLanguages } from '@/lib/services/local-tts';
 import type { Qwen3TtsResult } from '@/modules/expo-qwen3-tts';
@@ -116,7 +116,7 @@ export default function VoiceCloningScreen() {
           <Text className="text-2xl font-bold text-foreground">Clonage de voix</Text>
           <Text className="text-sm text-muted mt-1">
             {hasModels
-              ? 'Zero-shot voice cloning avec Qwen3-TTS'
+              ? 'Zero-shot voice cloning — mode local'
               : 'Installez un modèle pour commencer'}
           </Text>
         </View>
@@ -236,12 +236,12 @@ export default function VoiceCloningScreen() {
                 <>
                   <ActivityIndicator color="white" style={{ marginRight: 8 }} />
                   <Text className="text-white font-semibold text-center text-lg">
-                    Clonage Qwen3-TTS en cours...
+                    Clonage en cours...
                   </Text>
                 </>
               ) : (
                 <Text className="text-white font-semibold text-center text-lg">
-                  🎙️ Cloner la voix (Qwen3-TTS ECAPA-TDNN)
+                  🎙️ Cloner la voix
                 </Text>
               )}
             </Pressable>
