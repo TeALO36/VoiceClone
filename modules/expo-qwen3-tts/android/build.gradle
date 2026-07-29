@@ -1,17 +1,15 @@
 apply plugin: 'com.android.library'
-apply plugin: 'kotlin-android'
 
 def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
 apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useDefaultAndroidSdkVersions()
+useCoreDependencies()
 
 android {
     namespace 'expo.modules.qwen3tts'
-    compileSdkVersion 34
 
     defaultConfig {
-        minSdkVersion 24
-        targetSdkVersion 34
-
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17 -O3 -fexceptions -frtti"
@@ -40,8 +38,4 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-}
-
-dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.0"
 }
