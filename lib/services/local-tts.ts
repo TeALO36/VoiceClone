@@ -31,11 +31,13 @@ export interface CloneOptions {
   engine: TtsEngine;
   language?: string;
   /**
-   * What is actually said in the reference clip.
+   * What is actually said in the reference clip. Always optional.
    *
-   * Required by OmniVoice, which aligns the prompt against the reference codes
-   * and refuses to clone without it. Qwen3-TTS derives the voice from a speaker
-   * encoder instead and ignores this entirely.
+   * OmniVoice concatenates it ahead of the target text to give the model more
+   * context against the reference codes, but handles an empty string fine
+   * (prompt_tts_combine_text falls back to the target text alone) — the guard
+   * in its CLI is a CLI policy, not a library requirement. Qwen3-TTS derives
+   * the voice from a speaker encoder and ignores this entirely.
    */
   referenceText?: string;
   quality?: Quality;
@@ -119,11 +121,6 @@ export class OnDeviceTTSService {
     }
     if (!options.referenceAudioUri) {
       throw new Error('Aucun extrait de référence sélectionné');
-    }
-    if (options.engine === 'omnivoice' && !options.referenceText?.trim()) {
-      throw new Error(
-        'Indiquez ce qui est dit dans l\'extrait de référence — OmniVoice en a besoin pour cloner la voix.'
-      );
     }
 
     await this.initModel(options.modelDir, options.engine);
