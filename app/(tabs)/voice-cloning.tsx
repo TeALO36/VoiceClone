@@ -8,6 +8,7 @@ import { useState, useRef } from 'react';
 import * as DocumentPicker from 'expo-document-picker';
 import { Audio } from 'expo-av';
 import { getSupportedLanguages } from '@/lib/services/local-tts';
+import { prepareReference } from '@/modules/expo-qwen3-tts';
 import type { Qwen3TtsResult } from '@/modules/expo-qwen3-tts';
 
 const LANGUAGES = getSupportedLanguages();
@@ -89,6 +90,8 @@ export default function VoiceCloningScreen() {
   const [isCloning, setIsCloning] = useState(false);
   const [cloningResult, setCloningResult] = useState<Qwen3TtsResult | null>(null);
   const [cloneText, setCloneText] = useState('');
+  const [isConverting, setIsConverting] = useState(false);
+  const [refDuration, setRefDuration] = useState<number | null>(null);
 
   const hasModels = installedModels.length > 0;
 
@@ -133,8 +136,32 @@ export default function VoiceCloningScreen() {
         size: asset.size ?? 0,
         mimeType: asset.mimeType ?? 'audio/wav',
       });
-      setIsReady(true);
       setCloningResult(null);
+      setRefDuration(null);
+
+      if (Platform.OS === 'web') {
+        setIsReady(true);
+        return;
+      }
+
+      // Decode mp3/m4a/mp4/... down to the 24 kHz mono WAV the engines need.
+      // Done here rather than at synthesis time so an unusable clip is caught
+      // while the user is still looking at the picker.
+      setIsReady(false);
+      setIsConverting(true);
+      try {
+        const prepared = await prepareReference(asset.uri);
+        setSelectedFile((prev) => (prev ? { ...prev, uri: prepared.uri } : prev));
+        setRefDuration(prepared.duration);
+        setIsReady(true);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (error: any) {
+        console.error('Reference conversion failed:', error);
+        Alert.alert('Extrait inutilisable', error?.message || 'Impossible de lire cet extrait audio.');
+        setSelectedFile(null);
+      } finally {
+        setIsConverting(false);
+      }
     } catch (error) {
       console.error('Error picking file:', error);
       Alert.alert('Erreur', 'Impossible de sélectionner le fichier');
@@ -148,6 +175,7 @@ export default function VoiceCloningScreen() {
       } catch (_) {}
     }
     setSelectedFile(null);
+    setRefDuration(null);
     setIsReady(false);
     setCloningResult(null);
   };
@@ -241,14 +269,22 @@ export default function VoiceCloningScreen() {
               <View className="flex-row items-center justify-between mb-3">
                 <View className="flex-row items-center flex-1 mr-2">
                   <View className="w-8 h-8 rounded-full bg-success/20 items-center justify-center mr-3">
-                    <Text className="text-success font-bold">✓</Text>
+                    {isConverting ? (
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                      <Text className="text-success font-bold">✓</Text>
+                    )}
                   </View>
                   <View className="flex-1">
                     <Text className="text-base font-semibold text-foreground" numberOfLines={1}>
                       {selectedFile.name}
                     </Text>
                     <Text className="text-xs text-muted">
-                      Échantillon vocal chargé · {formatBytes(selectedFile.size)}
+                      {isConverting
+                        ? 'Extraction de la voix…'
+                        : refDuration != null
+                          ? `Prêt · ${refDuration.toFixed(1)} s de voix`
+                          : `Échantillon vocal chargé · ${formatBytes(selectedFile.size)}`}
                     </Text>
                   </View>
                 </View>

@@ -30,7 +30,9 @@ class ExpoQwen3TtsModule : Module() {
 
     private fun cleanupOldAudioFiles() {
         val cacheDir = appContext.reactContext?.cacheDir ?: return
-        val files = cacheDir.listFiles { _, name -> name.startsWith("synth_") || name.startsWith("clone_") }
+        val files = cacheDir.listFiles { _, name ->
+            name.startsWith("synth_") || name.startsWith("clone_") || name.startsWith("ref_")
+        }
         if (files != null) {
             val now = System.currentTimeMillis()
             // Delete files older than 1 hour (3600000 ms)
@@ -39,6 +41,31 @@ class ExpoQwen3TtsModule : Module() {
                     file.delete()
                 }
             }
+        }
+    }
+
+    /**
+     * Convert whatever the user picked into the 24 kHz mono WAV the engines
+     * need. Already-converted references (our own ref_*.wav) pass straight
+     * through so re-cloning the same clip does not decode it twice.
+     */
+    private fun resolveReference(sourceUri: String): java.io.File {
+        val context = appContext.reactContext
+            ?: throw IllegalStateException("No Android context available")
+        val cacheDir = context.cacheDir
+
+        val plainPath = if (sourceUri.startsWith("file://")) sourceUri.substring(7) else sourceUri
+        val existing = java.io.File(plainPath)
+        if (existing.parentFile == cacheDir && existing.name.startsWith("ref_") && existing.exists()) {
+            return existing
+        }
+
+        val outFile = java.io.File.createTempFile("ref_", ".wav", cacheDir)
+        try {
+            return AudioConverter.toReferenceWav(context, sourceUri, outFile)
+        } catch (e: Exception) {
+            outFile.delete()   // createTempFile already made it; don't leave an empty stub
+            throw e
         }
     }
     override fun definition() = ModuleDefinition {
@@ -105,6 +132,20 @@ class ExpoQwen3TtsModule : Module() {
             )
         }
 
+        // Decode any audio or video the user picked into a 24 kHz mono WAV.
+        // Exposed separately so the UI can show the conversion and the clip
+        // duration before asking for a synthesis.
+        AsyncFunction("prepareReference") { sourceUri: String ->
+            cleanupOldAudioFiles()
+            val wav = resolveReference(sourceUri)
+            val samples = ((wav.length() - 44).coerceAtLeast(0)) / 2
+            mapOf(
+                "uri" to "file://${wav.absolutePath}",
+                "sampleRate" to AudioConverter.TARGET_SAMPLE_RATE,
+                "duration" to (samples.toDouble() / AudioConverter.TARGET_SAMPLE_RATE)
+            )
+        }
+
         AsyncFunction("cloneVoice") { text: String, lang: String, refText: String, referencePath: String ->
             if (!nativeLoaded) throw IllegalStateException("Native library not loaded")
             cleanupOldAudioFiles()
@@ -112,11 +153,8 @@ class ExpoQwen3TtsModule : Module() {
             val outFile = java.io.File.createTempFile("clone_", ".wav", cacheDir)
             val outPath = outFile.absolutePath
 
-            val actualRefPath = if (referencePath.startsWith("file://")) {
-                referencePath.substring(7)
-            } else {
-                referencePath
-            }
+            // Converts on the spot when the caller hands over a raw mp3/m4a/mp4.
+            val actualRefPath = resolveReference(referencePath).absolutePath
 
             val numSamples = nativeCloneVoice(text, lang, actualRefPath, refText, outPath)
             if (numSamples < 0) {

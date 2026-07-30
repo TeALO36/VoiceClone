@@ -1,8 +1,21 @@
-import ExpoQwen3TtsModule, { type Qwen3TtsInterface, type TtsEngine } from './src/ExpoQwen3TtsModule';
+import ExpoQwen3TtsModule, {
+  type Qwen3TtsInterface,
+  type TtsEngine,
+  type PreparedReference,
+} from './src/ExpoQwen3TtsModule';
 import type { Qwen3TtsResult } from './src/ExpoQwen3Tts.types';
 
 export type { Qwen3TtsResult } from './src/ExpoQwen3Tts.types';
-export type { TtsEngine } from './src/ExpoQwen3TtsModule';
+export type { TtsEngine, PreparedReference } from './src/ExpoQwen3TtsModule';
+
+/**
+ * Convert a picked audio or video file into the 24 kHz mono WAV the engines
+ * require. Handles mp3, m4a, aac, ogg, mp4 and mkv — a video is just a
+ * container the audio track is pulled from.
+ */
+export async function prepareReference(sourceUri: string): Promise<PreparedReference> {
+  return ExpoQwen3TtsModule.prepareReference(sourceUri);
+}
 
 /**
  * Load a model directory into the native engine.
