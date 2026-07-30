@@ -35,9 +35,9 @@ export default function SynthesisScreen() {
       return;
     }
 
-    const modelId = selectedModelId || installedModels[0]?.id;
-    if (!modelId) {
-      Alert.alert('Erreur', 'Aucun modèle installé. Installez Qwen3-TTS d\'abord.');
+    const model = installedModels.find((m) => m.id === selectedModelId) ?? installedModels[0];
+    if (!model) {
+      Alert.alert('Erreur', 'Aucun modèle installé. Installez-en un dans l\'onglet Modèles.');
       return;
     }
 
@@ -45,7 +45,7 @@ export default function SynthesisScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      const modelDir = await getModelPath(modelId);
+      const modelDir = await getModelPath(model.id);
       if (!modelDir) {
         Alert.alert('Erreur', 'Modèle introuvable. Réinstallez-le.');
         return;
@@ -54,6 +54,7 @@ export default function SynthesisScreen() {
       const result = await ttsEngine.synthesize({
         text: text.trim(),
         modelDir,
+        engine: model.type,
         language: selectedLanguage,
       });
 

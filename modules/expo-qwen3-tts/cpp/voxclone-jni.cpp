@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "omnivoice.h"
+#include "qwen3tts_c_api.h"
 
 #define LOG_TAG "VoxCloneJNI"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
@@ -27,17 +28,34 @@
 
 namespace {
 
-ov_context * g_ov = nullptr;
-std::string  g_last_error;
+// Both engines live in this binary and share one ggml build. Exactly one is
+// loaded at a time; the JS layer says which, because only it knows whether the
+// downloaded GGUF is an OmniVoice or a Qwen3-TTS checkpoint. Guessing from the
+// file is what produced "ov_init: pipeline_tts_load failed" on a Qwen3 model.
+enum Engine { ENGINE_NONE = 0, ENGINE_OMNIVOICE = 1, ENGINE_QWEN3 = 2 };
+
+ov_context *    g_ov     = nullptr;
+Qwen3Tts *      g_q3     = nullptr;
+Qwen3TtsParams  g_q3_params;
+Engine          g_engine = ENGINE_NONE;
+std::string     g_last_error;
 
 void set_error(const char * what) {
-    const char * detail = ov_last_error();
+    const char * detail = (g_engine == ENGINE_QWEN3 && g_q3)
+                              ? qwen3_tts_get_error(g_q3)
+                              : ov_last_error();
     g_last_error = what;
     if (detail && *detail) {
         g_last_error += ": ";
         g_last_error += detail;
     }
     LOGE("%s", g_last_error.c_str());
+}
+
+void release_all() {
+    if (g_ov) { ov_free(g_ov); g_ov = nullptr; }
+    if (g_q3) { qwen3_tts_destroy(g_q3); g_q3 = nullptr; }
+    g_engine = ENGINE_NONE;
 }
 
 std::string jstr(JNIEnv * env, jstring s) {
@@ -148,7 +166,7 @@ jint run_synthesis(JNIEnv * env,
                    jstring     jRefText,
                    jstring     jOutPath) {
 
-    if (!g_ov) {
+    if (g_engine == ENGINE_NONE) {
         g_last_error = "Model not loaded";
         LOGE("%s", g_last_error.c_str());
         return -1;
@@ -166,6 +184,37 @@ jint run_synthesis(JNIEnv * env,
         return -1;
     }
 
+    // ── Qwen3-TTS path ──
+    // Its C API takes the reference WAV as a file path and owns the decoding,
+    // so no resampling happens here.
+    if (g_engine == ENGINE_QWEN3) {
+        const std::string ref_path = jstr(env, jRefPath);
+
+        Qwen3TtsAudio * audio = ref_path.empty()
+            ? qwen3_tts_synthesize(g_q3, text.c_str(), &g_q3_params)
+            : qwen3_tts_synthesize_with_voice_file(g_q3, text.c_str(),
+                                                   ref_path.c_str(), &g_q3_params);
+
+        if (!audio || audio->n_samples <= 0) {
+            set_error(ref_path.empty() ? "Synthesis failed" : "Voice cloning failed");
+            if (audio) qwen3_tts_free_audio(audio);
+            return -1;
+        }
+
+        const bool ok = write_wav(out_path, audio->samples, audio->n_samples,
+                                  audio->sample_rate > 0 ? audio->sample_rate : 24000);
+        const int n = audio->n_samples;
+        qwen3_tts_free_audio(audio);
+
+        if (!ok) {
+            g_last_error = "Could not write output WAV";
+            return -1;
+        }
+        LOGD("Qwen3 wrote %d samples to %s", n, out_path.c_str());
+        return (jint)n;
+    }
+
+    // ── OmniVoice path ──
     ov_tts_params p;
     ov_tts_default_params(&p);
     p.text = text.c_str();
@@ -219,13 +268,35 @@ extern "C" {
 
 JNIEXPORT jboolean JNICALL
 Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeInitModel(
-    JNIEnv * env, jobject, jstring jModelPath, jstring jCodecPath) {
+    JNIEnv * env, jobject, jstring jModelDir, jstring jModelPath,
+    jstring jCodecPath, jstring jEngine) {
 
-    if (g_ov) { ov_free(g_ov); g_ov = nullptr; }
+    release_all();
 
+    const std::string model_dir  = jstr(env, jModelDir);
     const std::string model_path = jstr(env, jModelPath);
     const std::string codec_path = jstr(env, jCodecPath);
-    LOGD("Loading model=%s codec=%s", model_path.c_str(), codec_path.c_str());
+    const std::string engine     = jstr(env, jEngine);
+
+    if (engine == "qwen3") {
+        // qwen3-tts.cpp resolves its own filenames inside the directory.
+        LOGD("Loading Qwen3-TTS from dir=%s", model_dir.c_str());
+        qwen3_tts_default_params(&g_q3_params);
+        g_q3 = qwen3_tts_create(model_dir.c_str(), g_q3_params.n_threads);
+        if (!g_q3 || !qwen3_tts_is_loaded(g_q3)) {
+            g_engine = ENGINE_QWEN3;   // so set_error reads the Qwen3 error slot
+            set_error("Qwen3-TTS load failed");
+            if (g_q3) { qwen3_tts_destroy(g_q3); g_q3 = nullptr; }
+            g_engine = ENGINE_NONE;
+            return JNI_FALSE;
+        }
+        g_engine = ENGINE_QWEN3;
+        g_last_error.clear();
+        LOGD("Qwen3-TTS ready");
+        return JNI_TRUE;
+    }
+
+    LOGD("Loading OmniVoice model=%s codec=%s", model_path.c_str(), codec_path.c_str());
 
     ov_init_params ip;
     ov_init_default_params(&ip);
@@ -236,10 +307,11 @@ Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeInitModel(
 
     g_ov = ov_init(&ip);
     if (!g_ov) {
-        set_error("Model load failed");
+        set_error("OmniVoice load failed");
         return JNI_FALSE;
     }
 
+    g_engine = ENGINE_OMNIVOICE;
     g_last_error.clear();
     LOGD("OmniVoice ready");
     return JNI_TRUE;
@@ -260,12 +332,13 @@ Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeCloneVoice(
 
 JNIEXPORT void JNICALL
 Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeReleaseModel(JNIEnv *, jobject) {
-    if (g_ov) { ov_free(g_ov); g_ov = nullptr; LOGD("Model released"); }
+    release_all();
+    LOGD("Model released");
 }
 
 JNIEXPORT jboolean JNICALL
 Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeIsModelReady(JNIEnv *, jobject) {
-    return g_ov ? JNI_TRUE : JNI_FALSE;
+    return g_engine != ENGINE_NONE ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jint JNICALL

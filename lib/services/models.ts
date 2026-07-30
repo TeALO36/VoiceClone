@@ -19,47 +19,94 @@ export interface ModelState {
   available: TTSModel[];
 }
 
+export function formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 o';
+  const units = ['o', 'Ko', 'Mo', 'Go'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return `${Math.round((bytes / Math.pow(1024, i)) * 10) / 10} ${units[i]}`;
+}
+
 // ─── Master catalog ───
+//
+// `name` is the filename on disk, NOT the name on HuggingFace. qwen3-tts.cpp
+// hardcodes the filenames it looks for inside the model directory
+// (qwen3_tts.cpp: load_models), so the download has to land on those exact
+// names or the loader reports "no model found" on a directory full of files.
+// OmniVoice takes explicit paths, so its files keep their upstream names.
 const MODEL_CATALOG: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
-  {
-    id: 'qwen3-tts-06b',
-    name: 'Qwen3-TTS 0.6B',
-    description: 'Synthèse vocale & clonage de voix — GGUF Q8_0',
-    ggufFiles: [
-      { name: 'qwen3-tts-12hz-0.6b-base-q8_0.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-0.6b-base-GGUF/resolve/main/qwen3-tts-12hz-0.6b-base-q8_0.gguf' },
-      { name: 'qwen3-tts-tokenizer-12hz-q8_0.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-tokenizer-12hz-GGUF/resolve/main/qwen3-tts-tokenizer-12hz-q8_0.gguf' },
-    ],
-    type: 'qwen3',
-    size: 985 * 1024 * 1024,
-    languages: ['Chinese', 'English', 'Japanese', 'Korean', 'German', 'French', 'Russian', 'Portuguese', 'Spanish', 'Italian'],
-  },
-  {
-    id: 'qwen3-tts-17b',
-    name: 'Qwen3-TTS 1.7B',
-    description: 'Modèle haute qualité (1.7B) — GGUF Q8_0',
-    ggufFiles: [
-      { name: 'qwen3-tts-12hz-1.7b-base-q8_0.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-1.7b-base-GGUF/resolve/main/qwen3-tts-12hz-1.7b-base-q8_0.gguf' },
-      { name: 'qwen3-tts-tokenizer-12hz-q8_0.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-tokenizer-12hz-GGUF/resolve/main/qwen3-tts-tokenizer-12hz-q8_0.gguf' },
-    ],
-    type: 'qwen3',
-    size: 2066 * 1024 * 1024,
-    languages: ['Chinese', 'English', 'Japanese', 'Korean', 'German', 'French', 'Russian', 'Portuguese', 'Spanish', 'Italian'],
-  },
   {
     id: 'omnivoice-base',
     name: 'OmniVoice',
-    description: 'Synthèse vocale 646 langues + voice design — GGUF Q4_K_M',
+    description: 'Clonage de voix multilingue — le plus rapide à installer',
     ggufFiles: [
       { name: 'omnivoice-base-Q4_K_M.gguf', url: 'https://huggingface.co/Serveurperso/OmniVoice-GGUF/resolve/main/omnivoice-base-Q4_K_M.gguf' },
       { name: 'omnivoice-tokenizer-Q8_0.gguf', url: 'https://huggingface.co/Serveurperso/OmniVoice-GGUF/resolve/main/omnivoice-tokenizer-Q8_0.gguf' },
     ],
     type: 'omnivoice',
-    size: 660 * 1024 * 1024,
-    languages: ['646+ languages', 'Français', 'English', '中文', '日本語', '한국어', 'Deutsch', 'Español'],
+    size: 407485216 + 288889600,
+    languages: ['646+ langues', 'Français', 'English', '中文', '日本語', '한국어', 'Deutsch', 'Español'],
+  },
+  {
+    id: 'qwen3-tts-06b',
+    name: 'Qwen3-TTS 0.6B',
+    description: 'Clonage zero-shot Qwen3 — qualité supérieure, 1,2 Go',
+    ggufFiles: [
+      { name: 'qwen3-tts-0.6b-q8_0.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-0.6b-base-GGUF/resolve/main/qwen3-tts-12hz-0.6b-base-q8_0.gguf' },
+      { name: 'qwen3-tts-tokenizer-f16.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-tokenizer-12hz-GGUF/resolve/main/qwen3-tts-tokenizer-12hz-q8_0.gguf' },
+    ],
+    type: 'qwen3',
+    size: 985716544 + 290623616,
+    languages: ['Chinese', 'English', 'Japanese', 'Korean', 'German', 'French', 'Russian', 'Portuguese', 'Spanish', 'Italian'],
+  },
+  {
+    id: 'qwen3-tts-17b',
+    name: 'Qwen3-TTS 1.7B',
+    description: 'Le plus fidèle — 2,3 Go, réservé aux appareils récents',
+    ggufFiles: [
+      // Same on-disk name as the 0.6B: the loader keys on the filename and
+      // reads the real dimensions from the GGUF header.
+      { name: 'qwen3-tts-0.6b-q8_0.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-1.7b-base-GGUF/resolve/main/qwen3-tts-12hz-1.7b-base-q8_0.gguf' },
+      { name: 'qwen3-tts-tokenizer-f16.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-tokenizer-12hz-GGUF/resolve/main/qwen3-tts-tokenizer-12hz-q8_0.gguf' },
+    ],
+    type: 'qwen3',
+    size: 2066 * 1024 * 1024,
+    languages: ['Chinese', 'English', 'Japanese', 'Korean', 'German', 'French', 'Russian', 'Portuguese', 'Spanish', 'Italian'],
   },
 ];
 
-const INSTALLED_KEY = 'voxclone_installed_models';
+// Bumped to v2 when the on-disk GGUF filenames changed. Anything recorded
+// under the old key points at files the current loader cannot find, so those
+// installs are wiped rather than left to fail at load time.
+const INSTALLED_KEY = 'voxclone_installed_models_v2';
+const LEGACY_INSTALLED_KEYS = ['voxclone_installed_models'];
+
+let migrationDone = false;
+
+async function migrateLegacyInstalls(): Promise<void> {
+  if (migrationDone) return;
+  migrationDone = true;
+
+  for (const key of LEGACY_INSTALLED_KEYS) {
+    try {
+      const stored = await AsyncStorage.getItem(key);
+      if (!stored) continue;
+
+      const records = JSON.parse(stored) as Record<string, InstalledRecord>;
+      for (const record of Object.values(records)) {
+        if (!record?.modelDir) continue;
+        try {
+          await FileSystem.deleteAsync(record.modelDir, { idempotent: true });
+        } catch {
+          // Best effort — a leftover directory is not worth blocking startup.
+        }
+      }
+      await AsyncStorage.removeItem(key);
+      console.log(`Cleared stale model installs from ${key}`);
+    } catch (error) {
+      console.warn(`Legacy model migration failed for ${key}:`, error);
+    }
+  }
+}
 
 interface InstalledRecord {
   downloadedAt: number;
@@ -67,6 +114,7 @@ interface InstalledRecord {
 }
 
 async function getInstalledRecords(): Promise<Record<string, InstalledRecord>> {
+  await migrateLegacyInstalls();
   try {
     const stored = await AsyncStorage.getItem(INSTALLED_KEY);
     return stored ? JSON.parse(stored) : {};
@@ -121,6 +169,21 @@ class ModelsService {
       return false;
     }
 
+    // Fail before writing a single byte rather than halfway through a 1 GB
+    // download. 10% headroom keeps the device from hitting a full-disk state.
+    try {
+      const free = await FileSystem.getFreeDiskStorageAsync();
+      if (free < model.size * 1.1) {
+        throw new Error(
+          `Espace insuffisant : ${formatBytes(model.size)} nécessaires, ` +
+          `${formatBytes(free)} disponibles.`
+        );
+      }
+    } catch (error: any) {
+      if (error?.message?.startsWith('Espace insuffisant')) throw error;
+      // Storage probing is advisory; never block a download because it failed.
+    }
+
     const modelDir = getModelDir(modelId);
 
     // Ensure model directory exists
@@ -158,6 +221,18 @@ class ModelsService {
 
         if (!downloadResult || downloadResult.status !== 200) {
           console.error(`Failed to download ${fileName}: HTTP ${downloadResult?.status}`);
+          await FileSystem.deleteAsync(modelDir, { idempotent: true });
+          return false;
+        }
+
+        // A truncated or error-page download still yields status 200. Every
+        // real GGUF here is far above 1 MB, so anything smaller is not a model
+        // and would only fail later inside the loader with a cryptic message.
+        const written = await FileSystem.getInfoAsync(filePath);
+        const writtenSize = written.exists ? written.size ?? 0 : 0;
+        if (writtenSize < 1024 * 1024) {
+          console.error(`${fileName} is truncated (${writtenSize} bytes)`);
+          await FileSystem.deleteAsync(modelDir, { idempotent: true });
           return false;
         }
 
@@ -166,6 +241,7 @@ class ModelsService {
         onProgress?.(Math.round(currentProgress));
       } catch (error) {
         console.error(`Download error for ${fileName}:`, error);
+        await FileSystem.deleteAsync(modelDir, { idempotent: true }).catch(() => {});
         return false;
       }
     }

@@ -12,6 +12,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 get_filename_component(PROJECT_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../.. ABSOLUTE)
 set(OV_DIR "${PROJECT_ROOT}/omnivoice-cpp")
+set(Q3_DIR "${PROJECT_ROOT}/qwen3-tts-cpp")
 
 if(NOT EXISTS "${OV_DIR}/src/omnivoice.cpp")
     message(FATAL_ERROR
@@ -55,6 +56,14 @@ add_library(qwen3tts_jni SHARED
     ${OV_DIR}/src/omnivoice.cpp
     ${OV_DIR}/src/pipeline-codec.cpp
     ${OV_DIR}/src/pipeline-tts.cpp
+    ${Q3_DIR}/src/qwen3tts_c_api.cpp
+    ${Q3_DIR}/src/qwen3_tts.cpp
+    ${Q3_DIR}/src/text_tokenizer.cpp
+    ${Q3_DIR}/src/tts_transformer.cpp
+    ${Q3_DIR}/src/coreml_code_predictor_stub.cpp
+    ${Q3_DIR}/src/audio_tokenizer_encoder.cpp
+    ${Q3_DIR}/src/audio_tokenizer_decoder.cpp
+    ${Q3_DIR}/src/gguf_loader.cpp
 )
 
 # Matches how omnivoice-core is built upstream: no dllimport/visibility games,
@@ -65,6 +74,7 @@ target_include_directories(qwen3tts_jni PRIVATE
     ${OV_DIR}/src
     ${OV_DIR}
     ${OV_GENERATED_DIR}
+    ${Q3_DIR}/src
 )
 target_include_directories(qwen3tts_jni SYSTEM PRIVATE
     ${OV_DIR}/ggml/include

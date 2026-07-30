@@ -1,15 +1,17 @@
-import ExpoQwen3TtsModule, { type Qwen3TtsInterface } from './src/ExpoQwen3TtsModule';
+import ExpoQwen3TtsModule, { type Qwen3TtsInterface, type TtsEngine } from './src/ExpoQwen3TtsModule';
 import type { Qwen3TtsResult } from './src/ExpoQwen3Tts.types';
 
 export type { Qwen3TtsResult } from './src/ExpoQwen3Tts.types';
+export type { TtsEngine } from './src/ExpoQwen3TtsModule';
 
 /**
- * Initialize the Qwen3-TTS model from a local GGUF file.
+ * Load a model directory into the native engine.
  * Must be called once before synthesize or cloneVoice.
  * @param modelDir Path to directory containing .gguf model files
+ * @param engine Which engine owns those files — the two formats are not interchangeable
  */
-export async function initModel(modelDir: string): Promise<void> {
-  return ExpoQwen3TtsModule.initModel(modelDir);
+export async function initModel(modelDir: string, engine: TtsEngine): Promise<void> {
+  return ExpoQwen3TtsModule.initModel(modelDir, engine);
 }
 
 /**
@@ -27,19 +29,19 @@ export async function synthesize(
 }
 
 /**
- * Clone a voice from a reference audio file and generate speech.
- * Uses ECAPA-TDNN speaker encoder for zero-shot voice cloning.
+ * Clone a voice from a reference recording and speak `text` with it.
  * @param text Text to speak in the cloned voice
- * @param referencePath Path to reference audio file (WAV recommended, 3-10 seconds)
- * @returns PCM audio data and sample rate
+ * @param lang Language hint ('' lets the engine decide)
+ * @param refText What is actually said in the reference, when known — improves fidelity
+ * @param referencePath Path to the reference WAV (24 kHz mono, 3-10 seconds)
  */
 export async function cloneVoice(
   text: string,
   lang: string = 'en',
   refText: string = '',
-  refSamples: number[] | null = null
+  referencePath: string
 ): Promise<Qwen3TtsResult> {
-  return ExpoQwen3TtsModule.cloneVoice(text, lang, refText, refSamples) as Promise<Qwen3TtsResult>;
+  return ExpoQwen3TtsModule.cloneVoice(text, lang, refText, referencePath) as Promise<Qwen3TtsResult>;
 }
 
 /**

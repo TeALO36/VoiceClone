@@ -162,8 +162,8 @@ export default function VoiceCloningScreen() {
       return;
     }
 
-    const modelId = installedModels[0]?.id;
-    if (!modelId) {
+    const model = installedModels[0];
+    if (!model) {
       Alert.alert('Erreur', 'Aucun modèle installé');
       return;
     }
@@ -172,7 +172,7 @@ export default function VoiceCloningScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      const modelDir = await getModelPath(modelId);
+      const modelDir = await getModelPath(model.id);
       if (!modelDir) {
         Alert.alert('Erreur', 'Modèle introuvable');
         return;
@@ -182,6 +182,7 @@ export default function VoiceCloningScreen() {
         text: cloneText.trim(),
         referenceAudioUri: selectedFile.uri,
         modelDir,
+        engine: model.type,
         language: selectedLanguage,
       });
 
