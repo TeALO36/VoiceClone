@@ -2,14 +2,13 @@ import { ScrollView, Text, View, Pressable, Alert, ActivityIndicator, TextInput,
 import { ScreenContainer } from '@/components/screen-container';
 import { useTTS } from '@/lib/context/tts-context';
 import { useColors } from '@/hooks/use-colors';
-import { AudioPlayer } from '@/components/audio-player';
+import { GenerationQueue } from '@/components/generation-queue';
 import * as Haptics from 'expo-haptics';
 import { useState, useRef } from 'react';
 import * as DocumentPicker from 'expo-document-picker';
 import { Audio } from 'expo-av';
 import { getSupportedLanguages } from '@/lib/services/local-tts';
 import { prepareReference } from '@/modules/expo-qwen3-tts';
-import type { Qwen3TtsResult } from '@/modules/expo-qwen3-tts';
 
 const LANGUAGES = getSupportedLanguages();
 
@@ -82,16 +81,19 @@ function ReferenceAudioPlayer({ uri, label }: { uri: string; label: string }) {
 
 export default function VoiceCloningScreen() {
   const colors = useColors();
-  const { installedModels, getModelPath, ttsEngine } = useTTS();
+  const { installedModels, getModelPath, ttsEngine, enqueueGeneration, jobs } = useTTS();
 
   const [selectedFile, setSelectedFile] = useState<PickedFile | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState('fr');
-  const [isCloning, setIsCloning] = useState(false);
-  const [cloningResult, setCloningResult] = useState<Qwen3TtsResult | null>(null);
   const [cloneText, setCloneText] = useState('');
   const [isConverting, setIsConverting] = useState(false);
   const [refDuration, setRefDuration] = useState<number | null>(null);
+  const [selectedModelId, setSelectedModelId] = useState<string>('');
+
+  const runningCount = jobs.filter(
+    (job) => job.kind === 'clone' && (job.status === 'queued' || job.status === 'running')
+  ).length;
 
   const hasModels = installedModels.length > 0;
 
@@ -136,7 +138,6 @@ export default function VoiceCloningScreen() {
         size: asset.size ?? 0,
         mimeType: asset.mimeType ?? 'audio/wav',
       });
-      setCloningResult(null);
       setRefDuration(null);
 
       if (Platform.OS === 'web') {
@@ -177,7 +178,6 @@ export default function VoiceCloningScreen() {
     setSelectedFile(null);
     setRefDuration(null);
     setIsReady(false);
-    setCloningResult(null);
   };
 
   const handleCloneVoice = async () => {
@@ -190,39 +190,32 @@ export default function VoiceCloningScreen() {
       return;
     }
 
-    const model = installedModels[0];
+    const model = installedModels.find((m) => m.id === selectedModelId) ?? installedModels[0];
     if (!model) {
       Alert.alert('Erreur', 'Aucun modèle installé');
       return;
     }
 
-    setIsCloning(true);
+    const spoken = cloneText.trim();
+    const referenceUri = selectedFile.uri;
+    const language = selectedLanguage;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    try {
+    // Queued rather than awaited so several clips can be lined up in a row.
+    enqueueGeneration('clone', spoken, async () => {
       const modelDir = await getModelPath(model.id);
-      if (!modelDir) {
-        Alert.alert('Erreur', 'Modèle introuvable');
-        return;
-      }
+      if (!modelDir) throw new Error('Modèle introuvable');
 
-      const result = await ttsEngine.cloneVoice({
-        text: cloneText.trim(),
-        referenceAudioUri: selectedFile.uri,
+      return ttsEngine.cloneVoice({
+        text: spoken,
+        referenceAudioUri: referenceUri,
         modelDir,
         engine: model.type,
-        language: selectedLanguage,
+        language,
       });
+    });
 
-      setCloningResult(result);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error: any) {
-      console.error('Cloning error:', error);
-      Alert.alert('Erreur', error?.message || 'Impossible de cloner la voix');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    } finally {
-      setIsCloning(false);
-    }
+    setCloneText('');
   };
 
   const formatBytes = (bytes: number) => {
@@ -251,7 +244,7 @@ export default function VoiceCloningScreen() {
             <View className="bg-warning/10 rounded-xl p-4 border border-warning/30">
               <Text className="text-warning font-semibold">⚠️ Aucun modèle installé</Text>
               <Text className="text-sm text-muted mt-1">
-                Installez Qwen3-TTS dans l'onglet Modèles pour utiliser le clonage vocal.
+                Installez un moteur dans l&apos;onglet Modèles pour utiliser le clonage vocal.
               </Text>
             </View>
           </View>
@@ -261,7 +254,7 @@ export default function VoiceCloningScreen() {
         <View className="px-6 mb-6">
           <Text className="text-sm font-semibold text-foreground mb-3">Étape 1: Audio de référence</Text>
           <Text className="text-xs text-muted mb-3">
-            Fournissez un échantillon audio de 3 à 10 secondes pour cloner une voix, ou importez une vidéo (MP4, MKV, AVI...) dont l'audio sera extrait automatiquement.
+            Fournissez un échantillon audio de 3 à 10 secondes pour cloner une voix, ou importez une vidéo (MP4, MKV, AVI...) dont l&apos;audio sera extrait automatiquement.
           </Text>
 
           {selectedFile ? (
@@ -388,49 +381,70 @@ export default function VoiceCloningScreen() {
           </View>
         )}
 
+        {/* Model picker — matters once both OmniVoice and Qwen3 are installed */}
+        {isReady && installedModels.length > 1 && (
+          <View className="px-6 mb-6">
+            <Text className="text-sm font-semibold text-foreground mb-3">Modèle</Text>
+            <View className="flex-row gap-2 flex-wrap">
+              {installedModels.map((model) => {
+                const active = (selectedModelId || installedModels[0]?.id) === model.id;
+                return (
+                  <Pressable
+                    key={model.id}
+                    onPress={() => {
+                      setSelectedModelId(model.id);
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }}
+                    style={({ pressed }) => [
+                      {
+                        backgroundColor: active ? colors.primary : colors.surface,
+                        opacity: pressed ? 0.8 : 1,
+                      },
+                    ]}
+                    className="flex-1 rounded-lg p-3 border border-border"
+                  >
+                    <Text
+                      className={active
+                        ? 'text-white font-semibold text-center'
+                        : 'text-foreground font-semibold text-center'}
+                    >
+                      {model.name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
         {/* Clone Button */}
         {isReady && (
           <View className="px-6 mb-6">
             <Pressable
               onPress={handleCloneVoice}
-              disabled={isCloning || !cloneText.trim()}
+              disabled={!cloneText.trim()}
               style={({ pressed }) => [
                 {
-                  backgroundColor: isCloning || !cloneText.trim() ? colors.muted : colors.primary,
+                  backgroundColor: !cloneText.trim() ? colors.muted : colors.primary,
                   opacity: pressed ? 0.9 : 1,
                   transform: [{ scale: pressed ? 0.97 : 1 }],
                 },
               ]}
               className="rounded-xl p-4 flex-row items-center justify-center"
             >
-              {isCloning ? (
-                <>
-                  <ActivityIndicator color="white" style={{ marginRight: 8 }} />
-                  <Text className="text-white font-semibold text-center text-lg">
-                    Clonage en cours...
-                  </Text>
-                </>
-              ) : (
-                <Text className="text-white font-semibold text-center text-lg">
-                  🎙️ Cloner la voix
-                </Text>
-              )}
+              <Text className="text-white font-semibold text-center text-lg">
+                {runningCount > 0 ? '🎙️ Ajouter à la file' : '🎙️ Cloner la voix'}
+              </Text>
             </Pressable>
+            {runningCount > 0 && (
+              <Text className="text-xs text-muted text-center mt-2">
+                {runningCount} clonage{runningCount > 1 ? 's' : ''} en cours — vous pouvez en lancer d&apos;autres
+              </Text>
+            )}
           </View>
         )}
 
-        {/* Result */}
-        {cloningResult && (
-          <View className="px-6 mb-6">
-            <View className="bg-success/10 border border-success rounded-xl p-4">
-              <Text className="text-success font-semibold mb-2">✓ Voix clonée avec succès !</Text>
-              <Text className="text-sm text-foreground mb-1">
-                {cloningResult.sampleRate}Hz · {cloningResult.frameCount} frames
-              </Text>
-              <AudioPlayer result={cloningResult} label="Écouter la voix clonée" />
-            </View>
-          </View>
-        )}
+        <GenerationQueue kind="clone" />
       </ScrollView>
     </ScreenContainer>
   );

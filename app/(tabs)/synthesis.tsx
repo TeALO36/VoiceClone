@@ -1,12 +1,11 @@
-import { ScrollView, Text, View, Pressable, TextInput, FlatList, Alert, ActivityIndicator } from 'react-native';
+import { ScrollView, Text, View, Pressable, TextInput, FlatList, Alert } from 'react-native';
 import { ScreenContainer } from '@/components/screen-container';
 import { useTTS } from '@/lib/context/tts-context';
 import { useColors } from '@/hooks/use-colors';
-import { AudioPlayer } from '@/components/audio-player';
+import { GenerationQueue } from '@/components/generation-queue';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
 import { VOICE_PRESETS, getSupportedLanguages } from '@/lib/services/local-tts';
-import type { Qwen3TtsResult } from '@/modules/expo-qwen3-tts';
 
 const VOICE_LIST = Object.entries(VOICE_PRESETS).map(([id, preset]) => ({
   id,
@@ -18,14 +17,16 @@ const LANGUAGES = getSupportedLanguages();
 
 export default function SynthesisScreen() {
   const colors = useColors();
-  const { installedModels, getModelPath, ttsEngine } = useTTS();
+  const { installedModels, getModelPath, ttsEngine, enqueueGeneration, jobs } = useTTS();
 
   const [text, setText] = useState('');
   const [selectedModelId, setSelectedModelId] = useState<string>('');
   const [selectedLanguage, setSelectedLanguage] = useState('fr');
   const [selectedVoice, setSelectedVoice] = useState('male-neutral');
-  const [isLoading, setIsLoading] = useState(false);
-  const [synthesisResult, setSynthesisResult] = useState<Qwen3TtsResult | null>(null);
+
+  const runningCount = jobs.filter(
+    (job) => job.kind === 'synthesis' && (job.status === 'queued' || job.status === 'running')
+  ).length;
 
   const hasModels = installedModels.length > 0;
 
@@ -41,32 +42,25 @@ export default function SynthesisScreen() {
       return;
     }
 
-    setIsLoading(true);
+    const spoken = text.trim();
+    const language = selectedLanguage;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    try {
+    // Queued rather than awaited: the user can keep typing and fire the next
+    // one straight away, and the queue view reports where each request stands.
+    enqueueGeneration('synthesis', spoken, async () => {
       const modelDir = await getModelPath(model.id);
-      if (!modelDir) {
-        Alert.alert('Erreur', 'Modèle introuvable. Réinstallez-le.');
-        return;
-      }
+      if (!modelDir) throw new Error('Modèle introuvable. Réinstallez-le.');
 
-      const result = await ttsEngine.synthesize({
-        text: text.trim(),
+      return ttsEngine.synthesize({
+        text: spoken,
         modelDir,
         engine: model.type,
-        language: selectedLanguage,
+        language,
       });
+    });
 
-      setSynthesisResult(result);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error: any) {
-      console.error('Synthesis error:', error);
-      Alert.alert('Erreur', error?.message || 'Impossible de synthétiser le texte');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    } finally {
-      setIsLoading(false);
-    }
+    setText('');
   };
 
   return (
@@ -116,7 +110,7 @@ export default function SynthesisScreen() {
             <View className="bg-warning/10 rounded-xl p-4 border border-warning/30">
               <Text className="text-warning font-semibold">⚠️ Aucun modèle installé</Text>
               <Text className="text-sm text-muted mt-1">
-                Allez dans l'onglet Modèles pour installer Qwen3-TTS.
+                Allez dans l&apos;onglet Modèles pour installer un moteur.
               </Text>
             </View>
           )}
@@ -211,43 +205,28 @@ export default function SynthesisScreen() {
         <View className="px-6 mb-6">
           <Pressable
             onPress={handleSynthesize}
-            disabled={isLoading || !text.trim() || !hasModels}
+            disabled={!text.trim() || !hasModels}
             style={({ pressed }) => [
               {
-                backgroundColor: isLoading || !text.trim() || !hasModels ? colors.muted : colors.primary,
+                backgroundColor: !text.trim() || !hasModels ? colors.muted : colors.primary,
                 opacity: pressed ? 0.9 : 1,
                 transform: [{ scale: pressed ? 0.97 : 1 }],
               },
             ]}
             className="rounded-xl p-4 flex-row items-center justify-center"
           >
-            {isLoading ? (
-              <>
-                <ActivityIndicator color="white" style={{ marginRight: 8 }} />
-                <Text className="text-white font-semibold text-center text-lg">
-                  Inférence en cours... (modèle local)
-                </Text>
-              </>
-            ) : (
-              <Text className="text-white font-semibold text-center text-lg">
-                🔊 Synthétiser (on-device)
-              </Text>
-            )}
+            <Text className="text-white font-semibold text-center text-lg">
+              {runningCount > 0 ? '🔊 Ajouter à la file' : '🔊 Synthétiser (on-device)'}
+            </Text>
           </Pressable>
+          {runningCount > 0 && (
+            <Text className="text-xs text-muted text-center mt-2">
+              {runningCount} génération{runningCount > 1 ? 's' : ''} en cours — vous pouvez en lancer d&apos;autres
+            </Text>
+          )}
         </View>
 
-        {/* Result */}
-        {synthesisResult && (
-          <View className="px-6">
-            <View className="bg-success/10 border border-success rounded-xl p-4">
-              <Text className="text-success font-semibold mb-1">✓ Synthèse réussie</Text>
-              <Text className="text-foreground text-sm mb-1">
-                {synthesisResult.sampleRate}Hz · {synthesisResult.frameCount} frames · {synthesisResult.duration.toFixed(1)}s
-              </Text>
-              <AudioPlayer result={synthesisResult} />
-            </View>
-          </View>
-        )}
+        <GenerationQueue kind="synthesis" />
       </ScrollView>
     </ScreenContainer>
   );
