@@ -8,7 +8,7 @@ import { useState, useRef } from 'react';
 import * as DocumentPicker from 'expo-document-picker';
 import { Audio } from 'expo-av';
 import { getSupportedLanguages } from '@/lib/services/local-tts';
-import { prepareReference } from '@/modules/expo-qwen3-tts';
+import { prepareReference, type Quality } from '@/modules/expo-qwen3-tts';
 
 const LANGUAGES = getSupportedLanguages();
 
@@ -90,10 +90,18 @@ export default function VoiceCloningScreen() {
   const [isConverting, setIsConverting] = useState(false);
   const [refDuration, setRefDuration] = useState<number | null>(null);
   const [selectedModelId, setSelectedModelId] = useState<string>('');
+  const [refText, setRefText] = useState('');
+  const [quality, setQuality] = useState<Quality>('fast');
 
   const runningCount = jobs.filter(
     (job) => job.kind === 'clone' && (job.status === 'queued' || job.status === 'running')
   ).length;
+
+  const activeModel =
+    installedModels.find((m) => m.id === selectedModelId) ?? installedModels[0];
+  // Qwen3-TTS reads the voice off a speaker encoder; OmniVoice aligns against
+  // the reference transcript and will not clone without one.
+  const needsRefText = activeModel?.type === 'omnivoice';
 
   const hasModels = installedModels.length > 0;
 
@@ -196,9 +204,19 @@ export default function VoiceCloningScreen() {
       return;
     }
 
+    if (model.type === 'omnivoice' && !refText.trim()) {
+      Alert.alert(
+        'Transcription manquante',
+        'Écrivez ce qui est dit dans l\'extrait de référence. OmniVoice en a besoin pour aligner la voix.'
+      );
+      return;
+    }
+
     const spoken = cloneText.trim();
     const referenceUri = selectedFile.uri;
+    const referenceText = refText.trim();
     const language = selectedLanguage;
+    const chosenQuality = quality;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     // Queued rather than awaited so several clips can be lined up in a row.
@@ -209,9 +227,11 @@ export default function VoiceCloningScreen() {
       return ttsEngine.cloneVoice({
         text: spoken,
         referenceAudioUri: referenceUri,
+        referenceText,
         modelDir,
         engine: model.type,
         language,
+        quality: chosenQuality,
       });
     });
 
@@ -378,6 +398,79 @@ export default function VoiceCloningScreen() {
               className="bg-surface border border-border rounded-lg p-4 text-foreground"
               style={{ textAlignVertical: 'top', minHeight: 100 }}
             />
+          </View>
+        )}
+
+        {/* Reference transcript — OmniVoice refuses to clone without it */}
+        {isReady && needsRefText && (
+          <View className="px-6 mb-6">
+            <Text className="text-sm font-semibold text-foreground mb-1">
+              Que dit l&apos;extrait ?
+            </Text>
+            <Text className="text-xs text-muted mb-3">
+              Recopiez mot pour mot ce qui est prononcé. Le moteur s&apos;en sert pour
+              aligner la voix — sans cela le clonage échoue.
+            </Text>
+            <TextInput
+              value={refText}
+              onChangeText={setRefText}
+              placeholder="Ex : Bonjour, je teste ma voix."
+              placeholderTextColor={colors.muted}
+              multiline
+              className="bg-surface border border-border rounded-lg p-4 text-foreground"
+              style={{ textAlignVertical: 'top', minHeight: 70 }}
+            />
+          </View>
+        )}
+
+        {/* Quality — OmniVoice only; Qwen3 has no comparable step knob */}
+        {isReady && needsRefText && (
+          <View className="px-6 mb-6">
+            <Text className="text-sm font-semibold text-foreground mb-3">Qualité</Text>
+            <View className="flex-row gap-2">
+              {([
+                { id: 'fast' as Quality, label: 'Rapide', hint: '×1' },
+                { id: 'balanced' as Quality, label: 'Équilibré', hint: '×2' },
+                { id: 'best' as Quality, label: 'Maximale', hint: '×4' },
+              ]).map((option) => {
+                const active = quality === option.id;
+                return (
+                  <Pressable
+                    key={option.id}
+                    onPress={() => {
+                      setQuality(option.id);
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }}
+                    style={({ pressed }) => [
+                      {
+                        backgroundColor: active ? colors.primary : colors.surface,
+                        opacity: pressed ? 0.8 : 1,
+                      },
+                    ]}
+                    className="flex-1 rounded-lg p-3 border border-border"
+                  >
+                    <Text
+                      className={active
+                        ? 'text-white font-semibold text-center text-xs'
+                        : 'text-foreground font-semibold text-center text-xs'}
+                    >
+                      {option.label}
+                    </Text>
+                    <Text
+                      className={active
+                        ? 'text-white/70 text-center text-xs mt-1'
+                        : 'text-muted text-center text-xs mt-1'}
+                    >
+                      {option.hint} temps
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text className="text-xs text-muted mt-2">
+              La génération est lourde : comptez plusieurs dizaines de secondes par
+              phrase, même en mode Rapide.
+            </Text>
           </View>
         )}
 

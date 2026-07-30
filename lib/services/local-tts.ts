@@ -9,6 +9,8 @@ import type { Qwen3TtsResult } from '@/modules/expo-qwen3-tts';
 export type { Qwen3TtsResult };
 
 export type TtsEngine = 'omnivoice' | 'qwen3';
+export type { Quality } from '@/modules/expo-qwen3-tts';
+import type { Quality } from '@/modules/expo-qwen3-tts';
 
 export interface TTSOptions {
   text: string;
@@ -18,6 +20,8 @@ export interface TTSOptions {
   engine: TtsEngine;
   /** OmniVoice voice-design attributes, e.g. "female young adult moderate". */
   instruct?: string;
+  /** Trades generation time against fidelity. Defaults to the fastest preset. */
+  quality?: Quality;
 }
 
 export interface CloneOptions {
@@ -26,8 +30,15 @@ export interface CloneOptions {
   modelDir: string;
   engine: TtsEngine;
   language?: string;
-  /** Transcript of the reference clip, when known — improves cloning fidelity. */
+  /**
+   * What is actually said in the reference clip.
+   *
+   * Required by OmniVoice, which aligns the prompt against the reference codes
+   * and refuses to clone without it. Qwen3-TTS derives the voice from a speaker
+   * encoder instead and ignores this entirely.
+   */
   referenceText?: string;
+  quality?: Quality;
 }
 
 // ─── Language mapping ───
@@ -96,7 +107,8 @@ export class OnDeviceTTSService {
     return await Qwen3Tts.synthesize(
       options.text.trim(),
       options.language ?? '',
-      options.instruct ?? ''
+      options.instruct ?? '',
+      options.quality ?? 'fast'
     );
   }
 
@@ -108,14 +120,20 @@ export class OnDeviceTTSService {
     if (!options.referenceAudioUri) {
       throw new Error('Aucun extrait de référence sélectionné');
     }
+    if (options.engine === 'omnivoice' && !options.referenceText?.trim()) {
+      throw new Error(
+        'Indiquez ce qui est dit dans l\'extrait de référence — OmniVoice en a besoin pour cloner la voix.'
+      );
+    }
 
     await this.initModel(options.modelDir, options.engine);
 
     return await Qwen3Tts.cloneVoice(
       options.text.trim(),
       options.language ?? '',
-      options.referenceText ?? '',
-      options.referenceAudioUri
+      options.referenceText?.trim() ?? '',
+      options.referenceAudioUri,
+      options.quality ?? 'fast'
     );
   }
 

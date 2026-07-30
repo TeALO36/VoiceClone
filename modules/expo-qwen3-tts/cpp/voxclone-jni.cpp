@@ -164,6 +164,7 @@ jint run_synthesis(JNIEnv * env,
                    jstring     jInstruct,
                    jstring     jRefPath,
                    jstring     jRefText,
+                   jint        jSteps,
                    jstring     jOutPath) {
 
     if (g_engine == ENGINE_NONE) {
@@ -220,6 +221,11 @@ jint run_synthesis(JNIEnv * env,
     p.text = text.c_str();
     p.lang = lang.c_str();
     p.instruct = instruct.empty() ? nullptr : instruct.c_str();
+
+    // The MaskGIT step count is the dominant cost: time scales linearly with it
+    // and the upstream default of 32 is far too slow on a phone. Measured on a
+    // desktop, cloning 1.8 s of audio took 68 s at 32 steps and 17 s at 8.
+    if (jSteps > 0) p.mg_num_step = (int)jSteps;
 
     // Reference samples stay pinned for the whole ov_synthesize call.
     std::vector<float> ref_audio;
@@ -319,15 +325,16 @@ Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeInitModel(
 
 JNIEXPORT jint JNICALL
 Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeSynthesize(
-    JNIEnv * env, jobject, jstring text, jstring lang, jstring instruct, jstring outPath) {
-    return run_synthesis(env, text, lang, instruct, nullptr, nullptr, outPath);
+    JNIEnv * env, jobject, jstring text, jstring lang, jstring instruct,
+    jint steps, jstring outPath) {
+    return run_synthesis(env, text, lang, instruct, nullptr, nullptr, steps, outPath);
 }
 
 JNIEXPORT jint JNICALL
 Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeCloneVoice(
     JNIEnv * env, jobject, jstring text, jstring lang, jstring refPath,
-    jstring refText, jstring outPath) {
-    return run_synthesis(env, text, lang, nullptr, refPath, refText, outPath);
+    jstring refText, jint steps, jstring outPath) {
+    return run_synthesis(env, text, lang, nullptr, refPath, refText, steps, outPath);
 }
 
 JNIEXPORT void JNICALL
