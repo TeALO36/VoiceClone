@@ -6,7 +6,7 @@ const scheme = "voxclone";
 const config: ExpoConfig = {
   name: "VoxClone Pro",
   slug: "vox-clone-mobile",
-  version: "4.0.0",
+  version: "4.0.1",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: scheme,
