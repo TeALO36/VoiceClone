@@ -46,11 +46,12 @@ class ExpoQwen3TtsModule : Module() {
 
         AsyncFunction("initModel") { modelDir: String ->
             if (!nativeLoaded) throw IllegalStateException("Native library not loaded")
-            val dir = java.io.File(modelDir)
-            if (!dir.exists() || !dir.isDirectory) throw IllegalArgumentException("modelDir must be a directory")
+            val actualDir = if (modelDir.startsWith("file://")) modelDir.substring(7) else modelDir
+            val dir = java.io.File(actualDir)
+            if (!dir.exists() || !dir.isDirectory) throw IllegalArgumentException("modelDir must be a directory (got $actualDir)")
             
             val files = dir.listFiles { _, name -> name.endsWith(".gguf") }
-            if (files == null || files.isEmpty()) throw IllegalArgumentException("No .gguf files found in $modelDir")
+            if (files == null || files.isEmpty()) throw IllegalArgumentException("No .gguf files found in $actualDir")
 
             var modelPath = ""
             var codecPath = ""
