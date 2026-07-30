@@ -99,9 +99,10 @@ export default function VoiceCloningScreen() {
 
   const activeModel =
     installedModels.find((m) => m.id === selectedModelId) ?? installedModels[0];
-  // Qwen3-TTS reads the voice off a speaker encoder; OmniVoice aligns against
-  // the reference transcript and will not clone without one.
-  const needsRefText = activeModel?.type === 'omnivoice';
+  // Qwen3-TTS reads the voice off a speaker encoder and ignores any transcript.
+  // OmniVoice can use one for extra context but clones fine without it, so the
+  // field is offered rather than required.
+  const usesRefText = activeModel?.type === 'omnivoice';
 
   const hasModels = installedModels.length > 0;
 
@@ -201,14 +202,6 @@ export default function VoiceCloningScreen() {
     const model = installedModels.find((m) => m.id === selectedModelId) ?? installedModels[0];
     if (!model) {
       Alert.alert('Erreur', 'Aucun modèle installé');
-      return;
-    }
-
-    if (model.type === 'omnivoice' && !refText.trim()) {
-      Alert.alert(
-        'Transcription manquante',
-        'Écrivez ce qui est dit dans l\'extrait de référence. OmniVoice en a besoin pour aligner la voix.'
-      );
       return;
     }
 
@@ -402,14 +395,14 @@ export default function VoiceCloningScreen() {
         )}
 
         {/* Reference transcript — OmniVoice refuses to clone without it */}
-        {isReady && needsRefText && (
+        {isReady && usesRefText && (
           <View className="px-6 mb-6">
             <Text className="text-sm font-semibold text-foreground mb-1">
-              Que dit l&apos;extrait ?
+              Que dit l&apos;extrait ? <Text className="text-muted font-normal">(facultatif)</Text>
             </Text>
             <Text className="text-xs text-muted mb-3">
-              Recopiez mot pour mot ce qui est prononcé. Le moteur s&apos;en sert pour
-              aligner la voix — sans cela le clonage échoue.
+              Le clonage marche sans, mais recopier ce qui est prononcé donne au
+              moteur un repère de plus et améliore la ressemblance.
             </Text>
             <TextInput
               value={refText}
@@ -424,7 +417,7 @@ export default function VoiceCloningScreen() {
         )}
 
         {/* Quality — OmniVoice only; Qwen3 has no comparable step knob */}
-        {isReady && needsRefText && (
+        {isReady && usesRefText && (
           <View className="px-6 mb-6">
             <Text className="text-sm font-semibold text-foreground mb-3">Qualité</Text>
             <View className="flex-row gap-2">
