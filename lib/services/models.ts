@@ -1,5 +1,4 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 
 export interface TTSModel {
@@ -127,6 +126,55 @@ async function saveInstalledRecords(records: Record<string, InstalledRecord>): P
   await AsyncStorage.setItem(INSTALLED_KEY, JSON.stringify(records));
 }
 
+// Every mutation of the record map runs through this chain. Two downloads
+// finishing at the same moment would otherwise both read the old map and the
+// second write would silently drop the first model.
+let recordsLock: Promise<unknown> = Promise.resolve();
+
+function withRecords<T>(
+  mutate: (records: Record<string, InstalledRecord>) => Promise<T> | T
+): Promise<T> {
+  const run = recordsLock.then(async () => {
+    const records = await getInstalledRecords();
+    return mutate(records);
+  });
+  // Keep the chain alive even when a caller rejects.
+  recordsLock = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+/** Models currently downloading, so a second tap cannot start the same one twice. */
+const inFlight = new Map<string, number>();
+
+function reservedBytes(): number {
+  let total = 0;
+  for (const size of inFlight.values()) total += size;
+  return total;
+}
+
+/** Real bytes on disk, as opposed to the catalog's advertised size. */
+async function directorySize(dir: string): Promise<number> {
+  try {
+    const info = await FileSystem.getInfoAsync(dir);
+    if (!info.exists) return 0;
+
+    const entries = await FileSystem.readDirectoryAsync(dir);
+    let total = 0;
+    for (const entry of entries) {
+      const entryInfo = await FileSystem.getInfoAsync(`${dir}/${entry}`);
+      if (entryInfo.exists && !entryInfo.isDirectory) {
+        total += entryInfo.size ?? 0;
+      }
+    }
+    return total;
+  } catch {
+    return 0;
+  }
+}
+
 function getModelDir(modelId: string): string {
   return `${FileSystem.documentDirectory}models/${modelId}`;
 }
@@ -163,6 +211,11 @@ class ModelsService {
       return false;
     }
 
+    if (inFlight.has(modelId)) {
+      console.warn('Model already downloading:', modelId);
+      return false;
+    }
+
     const model = MODEL_CATALOG.find((m) => m.id === modelId);
     if (!model) {
       console.error('Model not found in catalog:', modelId);
@@ -170,20 +223,34 @@ class ModelsService {
     }
 
     // Fail before writing a single byte rather than halfway through a 1 GB
-    // download. 10% headroom keeps the device from hitting a full-disk state.
-    try {
-      const free = await FileSystem.getFreeDiskStorageAsync();
-      if (free < model.size * 1.1) {
+    // download. Space already promised to downloads in flight counts as taken,
+    // otherwise starting three installs at once passes three separate checks
+    // and they collectively run the disk dry.
+    const free = await FileSystem.getFreeDiskStorageAsync().catch(() => -1);
+    if (free >= 0) {
+      const needed = model.size * 1.1;
+      const available = free - reservedBytes();
+      if (available < needed) {
         throw new Error(
           `Espace insuffisant : ${formatBytes(model.size)} nécessaires, ` +
-          `${formatBytes(free)} disponibles.`
+          `${formatBytes(Math.max(0, available))} disponibles.`
         );
       }
-    } catch (error: any) {
-      if (error?.message?.startsWith('Espace insuffisant')) throw error;
-      // Storage probing is advisory; never block a download because it failed.
     }
 
+    inFlight.set(modelId, model.size);
+    try {
+      return await this.runDownload(model, onProgress);
+    } finally {
+      inFlight.delete(modelId);
+    }
+  }
+
+  private async runDownload(
+    model: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>,
+    onProgress?: (progress: number) => void
+  ): Promise<boolean> {
+    const modelId = model.id;
     const modelDir = getModelDir(modelId);
 
     // Ensure model directory exists
@@ -246,32 +313,33 @@ class ModelsService {
       }
     }
 
-    records[modelId] = {
-      downloadedAt: Date.now(),
-      modelDir,
-    };
-    await saveInstalledRecords(records);
+    // Re-read under the lock: another install may have completed while this
+    // one was downloading, and writing a map captured earlier would erase it.
+    await withRecords(async (current) => {
+      current[modelId] = { downloadedAt: Date.now(), modelDir };
+      await saveInstalledRecords(current);
+    });
     return true;
   }
 
   async deleteModel(modelId: string): Promise<boolean> {
-    const records = await getInstalledRecords();
-    if (!records[modelId]) return false;
+    return withRecords(async (records) => {
+      if (!records[modelId]) return false;
 
-    // Remove model files from disk
-    const modelDir = records[modelId].modelDir;
-    try {
-      const dirInfo = await FileSystem.getInfoAsync(modelDir);
-      if (dirInfo.exists) {
-        await FileSystem.deleteAsync(modelDir, { idempotent: true });
+      const modelDir = records[modelId].modelDir;
+      try {
+        const dirInfo = await FileSystem.getInfoAsync(modelDir);
+        if (dirInfo.exists) {
+          await FileSystem.deleteAsync(modelDir, { idempotent: true });
+        }
+      } catch (error) {
+        console.error('Failed to delete model files:', error);
       }
-    } catch (error) {
-      console.error('Failed to delete model files:', error);
-    }
 
-    delete records[modelId];
-    await saveInstalledRecords(records);
-    return true;
+      delete records[modelId];
+      await saveInstalledRecords(records);
+      return true;
+    });
   }
 
   async isInstalled(modelId: string): Promise<boolean> {
@@ -289,11 +357,34 @@ class ModelsService {
     return records[modelId]?.modelDir || null;
   }
 
+  /** Bytes actually occupied on disk, not the catalog's advertised sizes. */
   async getTotalStorageUsed(): Promise<number> {
     const records = await getInstalledRecords();
-    return MODEL_CATALOG
-      .filter((m) => records[m.id])
-      .reduce((total, m) => total + m.size, 0);
+    let total = 0;
+    for (const record of Object.values(records)) {
+      total += await directorySize(record.modelDir);
+    }
+    return total;
+  }
+
+  /** Free space left on the device, minus what downloads in flight will claim. */
+  async getFreeStorage(): Promise<number> {
+    const free = await FileSystem.getFreeDiskStorageAsync().catch(() => 0);
+    return Math.max(0, free - reservedBytes());
+  }
+
+  /** True when the model still has all of its files on disk. */
+  async verifyInstall(modelId: string): Promise<boolean> {
+    const records = await getInstalledRecords();
+    const record = records[modelId];
+    const model = MODEL_CATALOG.find((m) => m.id === modelId);
+    if (!record || !model) return false;
+
+    for (const file of model.ggufFiles) {
+      const info = await FileSystem.getInfoAsync(`${record.modelDir}/${file.name}`);
+      if (!info.exists || (info.size ?? 0) < 1024 * 1024) return false;
+    }
+    return true;
   }
 
   getCatalog(): Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] {
