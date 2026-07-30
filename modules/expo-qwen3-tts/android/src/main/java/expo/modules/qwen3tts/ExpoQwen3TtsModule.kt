@@ -21,8 +21,8 @@ class ExpoQwen3TtsModule : Module() {
 
     // Native methods bridged to C++ via JNI
     private external fun nativeInitModel(modelDir: String, modelPath: String, codecPath: String, engine: String): Boolean
-    private external fun nativeSynthesize(text: String, lang: String, instruct: String, outPath: String): Int
-    private external fun nativeCloneVoice(text: String, lang: String, refPath: String, refText: String, outPath: String): Int
+    private external fun nativeSynthesize(text: String, lang: String, instruct: String, steps: Int, outPath: String): Int
+    private external fun nativeCloneVoice(text: String, lang: String, refPath: String, refText: String, steps: Int, outPath: String): Int
     private external fun nativeReleaseModel()
     private external fun nativeIsModelReady(): Boolean
     private external fun nativeGetSampleRate(): Int
@@ -109,14 +109,14 @@ class ExpoQwen3TtsModule : Module() {
             }
         }
 
-        AsyncFunction("synthesize") { text: String, lang: String, instruct: String ->
+        AsyncFunction("synthesize") { text: String, lang: String, instruct: String, steps: Int ->
             if (!nativeLoaded) throw IllegalStateException("Native library not loaded")
             cleanupOldAudioFiles()
             val cacheDir = appContext.reactContext?.cacheDir
             val outFile = java.io.File.createTempFile("synth_", ".wav", cacheDir)
             val outPath = outFile.absolutePath
-            
-            val numSamples = nativeSynthesize(text, lang, instruct, outPath)
+
+            val numSamples = nativeSynthesize(text, lang, instruct, steps, outPath)
             if (numSamples < 0) {
                 throw RuntimeException("Synthesis failed: " + nativeGetLastError())
             }
@@ -146,7 +146,7 @@ class ExpoQwen3TtsModule : Module() {
             )
         }
 
-        AsyncFunction("cloneVoice") { text: String, lang: String, refText: String, referencePath: String ->
+        AsyncFunction("cloneVoice") { text: String, lang: String, refText: String, referencePath: String, steps: Int ->
             if (!nativeLoaded) throw IllegalStateException("Native library not loaded")
             cleanupOldAudioFiles()
             val cacheDir = appContext.reactContext?.cacheDir
@@ -156,7 +156,7 @@ class ExpoQwen3TtsModule : Module() {
             // Converts on the spot when the caller hands over a raw mp3/m4a/mp4.
             val actualRefPath = resolveReference(referencePath).absolutePath
 
-            val numSamples = nativeCloneVoice(text, lang, actualRefPath, refText, outPath)
+            val numSamples = nativeCloneVoice(text, lang, actualRefPath, refText, steps, outPath)
             if (numSamples < 0) {
                 throw RuntimeException("Voice cloning failed: " + nativeGetLastError())
             }

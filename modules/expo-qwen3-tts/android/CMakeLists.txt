@@ -24,6 +24,15 @@ endif()
 # -march=native and the x86 instruction-set options are meaningless when
 # cross-compiling for Android and make the build fail outright.
 set(GGML_NATIVE           OFF CACHE BOOL "" FORCE)
+
+# Without this the NDK compiles baseline ARMv8-a: ggml's dotprod / i8mm probes
+# all fail because clang defaults to armv8-a for arm64 and the intrinsics do not
+# compile, so it silently falls back to the slow generic kernels. Q4_K matmul —
+# which is the whole inference cost here — runs several times faster with SDOT.
+# armv8.2-a+dotprod covers essentially every Android device shipped since 2018;
+# anything older cannot hold a 700 MB model anyway. i8mm is deliberately left
+# out: it needs ARMv8.6 (2021+) and would SIGILL on older hardware.
+set(GGML_CPU_ARM_ARCH "armv8.2-a+dotprod" CACHE STRING "" FORCE)
 set(GGML_OPENMP           OFF CACHE BOOL "" FORCE)
 set(GGML_LLAMAFILE        OFF CACHE BOOL "" FORCE)
 set(GGML_BLAS             OFF CACHE BOOL "" FORCE)

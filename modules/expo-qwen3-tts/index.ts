@@ -2,11 +2,14 @@ import ExpoQwen3TtsModule, {
   type Qwen3TtsInterface,
   type TtsEngine,
   type PreparedReference,
+  type Quality,
+  QUALITY_STEPS,
 } from './src/ExpoQwen3TtsModule';
 import type { Qwen3TtsResult } from './src/ExpoQwen3Tts.types';
 
 export type { Qwen3TtsResult } from './src/ExpoQwen3Tts.types';
-export type { TtsEngine, PreparedReference } from './src/ExpoQwen3TtsModule';
+export type { TtsEngine, PreparedReference, Quality } from './src/ExpoQwen3TtsModule';
+export { QUALITY_STEPS } from './src/ExpoQwen3TtsModule';
 
 /**
  * Convert a picked audio or video file into the 24 kHz mono WAV the engines
@@ -36,9 +39,12 @@ export async function initModel(modelDir: string, engine: TtsEngine): Promise<vo
 export async function synthesize(
   text: string,
   lang: string = 'en',
-  instruct: string = ''
+  instruct: string = '',
+  quality: Quality = 'fast'
 ): Promise<Qwen3TtsResult> {
-  return ExpoQwen3TtsModule.synthesize(text, lang, instruct) as Promise<Qwen3TtsResult>;
+  return ExpoQwen3TtsModule.synthesize(
+    text, lang, instruct, QUALITY_STEPS[quality]
+  ) as Promise<Qwen3TtsResult>;
 }
 
 /**
@@ -52,9 +58,12 @@ export async function cloneVoice(
   text: string,
   lang: string = 'en',
   refText: string = '',
-  referencePath: string
+  referencePath: string,
+  quality: Quality = 'fast'
 ): Promise<Qwen3TtsResult> {
-  return ExpoQwen3TtsModule.cloneVoice(text, lang, refText, referencePath) as Promise<Qwen3TtsResult>;
+  return ExpoQwen3TtsModule.cloneVoice(
+    text, lang, refText, referencePath, QUALITY_STEPS[quality]
+  ) as Promise<Qwen3TtsResult>;
 }
 
 /**

@@ -48,28 +48,20 @@ const MODEL_CATALOG: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
   {
     id: 'qwen3-tts-06b',
     name: 'Qwen3-TTS 0.6B',
-    description: 'Clonage zero-shot Qwen3 — qualité supérieure, 1,2 Go',
+    description: 'Clonage sans transcription — génération 2× plus rapide',
+    // Served from TeALO/qwen3-tts-gguf because the other Qwen3-TTS GGUFs on the
+    // Hub (cstr/*) target CrispASR, a different runtime: they ship
+    // code_pred.output.N.weight where this engine wants code_pred.lm_head.*,
+    // and no pre_tfm block at all. These come from qwen3-tts.cpp's own
+    // converter, so the layout matches by construction. The filenames are the
+    // ones Qwen3TTS::load_models hardcodes — renaming them breaks loading.
     ggufFiles: [
-      { name: 'qwen3-tts-0.6b-q8_0.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-0.6b-base-GGUF/resolve/main/qwen3-tts-12hz-0.6b-base-q8_0.gguf' },
-      { name: 'qwen3-tts-tokenizer-f16.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-tokenizer-12hz-GGUF/resolve/main/qwen3-tts-tokenizer-12hz-q8_0.gguf' },
+      { name: 'qwen3-tts-0.6b-q8_0.gguf', url: 'https://huggingface.co/TeALO/qwen3-tts-gguf/resolve/main/qwen3-tts-0.6b-q8_0.gguf' },
+      { name: 'qwen3-tts-tokenizer-f16.gguf', url: 'https://huggingface.co/TeALO/qwen3-tts-gguf/resolve/main/qwen3-tts-tokenizer-f16.gguf' },
     ],
     type: 'qwen3',
-    size: 985716544 + 290623616,
-    languages: ['Chinese', 'English', 'Japanese', 'Korean', 'German', 'French', 'Russian', 'Portuguese', 'Spanish', 'Italian'],
-  },
-  {
-    id: 'qwen3-tts-17b',
-    name: 'Qwen3-TTS 1.7B',
-    description: 'Le plus fidèle — 2,3 Go, réservé aux appareils récents',
-    ggufFiles: [
-      // Same on-disk name as the 0.6B: the loader keys on the filename and
-      // reads the real dimensions from the GGUF header.
-      { name: 'qwen3-tts-0.6b-q8_0.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-1.7b-base-GGUF/resolve/main/qwen3-tts-12hz-1.7b-base-q8_0.gguf' },
-      { name: 'qwen3-tts-tokenizer-f16.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-tokenizer-12hz-GGUF/resolve/main/qwen3-tts-tokenizer-12hz-q8_0.gguf' },
-    ],
-    type: 'qwen3',
-    size: 2066 * 1024 * 1024,
-    languages: ['Chinese', 'English', 'Japanese', 'Korean', 'German', 'French', 'Russian', 'Portuguese', 'Spanish', 'Italian'],
+    size: 1_342_925_920 + 273_327_360,
+    languages: ['Français', 'English', '中文', '日本語', '한국어', 'Deutsch', 'Русский', 'Português', 'Español', 'Italiano'],
   },
 ];
 
@@ -112,8 +104,46 @@ interface InstalledRecord {
   modelDir: string;
 }
 
+let prunedOrphans = false;
+
+/**
+ * Drop installs whose model left the catalog. Without this a withdrawn model
+ * keeps its files — over a gigabyte for the Qwen3 checkpoints — with no entry
+ * in the UI to delete them from.
+ */
+async function pruneOrphanInstalls(): Promise<void> {
+  if (prunedOrphans) return;
+  prunedOrphans = true;
+
+  try {
+    const stored = await AsyncStorage.getItem(INSTALLED_KEY);
+    if (!stored) return;
+
+    const records = JSON.parse(stored) as Record<string, InstalledRecord>;
+    const known = new Set(MODEL_CATALOG.map((m) => m.id));
+    let changed = false;
+
+    for (const [id, record] of Object.entries(records)) {
+      if (known.has(id)) continue;
+      try {
+        await FileSystem.deleteAsync(record.modelDir, { idempotent: true });
+      } catch {
+        // Reclaiming the space is best effort; the record still goes.
+      }
+      delete records[id];
+      changed = true;
+      console.log(`Removed withdrawn model ${id}`);
+    }
+
+    if (changed) await AsyncStorage.setItem(INSTALLED_KEY, JSON.stringify(records));
+  } catch (error) {
+    console.warn('Orphan install pruning failed:', error);
+  }
+}
+
 async function getInstalledRecords(): Promise<Record<string, InstalledRecord>> {
   await migrateLegacyInstalls();
+  await pruneOrphanInstalls();
   try {
     const stored = await AsyncStorage.getItem(INSTALLED_KEY);
     return stored ? JSON.parse(stored) : {};
