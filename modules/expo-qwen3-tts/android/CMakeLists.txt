@@ -1,51 +1,81 @@
 cmake_minimum_required(VERSION 3.22.0)
-project(qwen3tts_native)
+project(voxclone_native LANGUAGES C CXX)
+
+# Everything is built in a single CMake pass driven by Gradle:
+# ggml (static) + the OmniVoice engine sources + the JNI bridge, all linked
+# into one libqwen3tts_jni.so. Nothing is pre-built by CI and nothing is
+# staged through jniLibs, so there is no second copy of ggml to collide with.
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 get_filename_component(PROJECT_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../.. ABSOLUTE)
-set(QWEN3_CPP_DIR "${PROJECT_ROOT}/qwen3-tts-cpp")
-set(GGML_DIR "${QWEN3_CPP_DIR}/ggml")
-set(OV_CPP_DIR "${PROJECT_ROOT}/omnivoice-cpp")
+set(OV_DIR "${PROJECT_ROOT}/omnivoice-cpp")
 
-set(GGML_BUILD_DIR "${GGML_DIR}/build/src")
-set(OV_BUILD_DIR "${OV_CPP_DIR}/build")
-
-# Source files for JNI and Qwen3-TTS engine
-set(JNI_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/qwen3-tts-jni.cpp
-    ${QWEN3_CPP_DIR}/src/qwen3tts_c_api.cpp
-    ${QWEN3_CPP_DIR}/src/qwen3_tts.cpp
-    ${QWEN3_CPP_DIR}/src/text_tokenizer.cpp
-    ${QWEN3_CPP_DIR}/src/tts_transformer.cpp
-    ${QWEN3_CPP_DIR}/src/coreml_code_predictor_stub.cpp
-    ${QWEN3_CPP_DIR}/src/audio_tokenizer_encoder.cpp
-    ${QWEN3_CPP_DIR}/src/audio_tokenizer_decoder.cpp
-    ${QWEN3_CPP_DIR}/src/gguf_loader.cpp
-)
-
-# Check if OmniVoice libs exist
-set(OMNIVOICE_AVAILABLE OFF)
-if(EXISTS "${OV_BUILD_DIR}/libomnivoice.so" OR EXISTS "${OV_BUILD_DIR}/libomnivoice.a")
-    list(APPEND JNI_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/omnivoice-jni.cpp)
-    set(OMNIVOICE_AVAILABLE ON)
-    add_compile_definitions(HAS_OMNIVOICE=1)
+if(NOT EXISTS "${OV_DIR}/src/omnivoice.cpp")
+    message(FATAL_ERROR
+        "omnivoice-cpp submodule is missing at ${OV_DIR}.\n"
+        "Run: git submodule update --init --recursive")
 endif()
 
-add_library(qwen3tts_jni SHARED ${JNI_SOURCES})
+# ── ggml: static, portable arm64, no host tuning ──
+# -march=native and the x86 instruction-set options are meaningless when
+# cross-compiling for Android and make the build fail outright.
+set(GGML_NATIVE           OFF CACHE BOOL "" FORCE)
+set(GGML_OPENMP           OFF CACHE BOOL "" FORCE)
+set(GGML_LLAMAFILE        OFF CACHE BOOL "" FORCE)
+set(GGML_BLAS             OFF CACHE BOOL "" FORCE)
+set(GGML_ACCELERATE       OFF CACHE BOOL "" FORCE)
+set(GGML_CCACHE           OFF CACHE BOOL "" FORCE)
+set(GGML_BACKEND_DL       OFF CACHE BOOL "" FORCE)
+set(GGML_CPU_ALL_VARIANTS OFF CACHE BOOL "" FORCE)
+set(GGML_ALL_WARNINGS     OFF CACHE BOOL "" FORCE)
+set(GGML_FATAL_WARNINGS   OFF CACHE BOOL "" FORCE)
+set(GGML_BUILD_TESTS      OFF CACHE BOOL "" FORCE)
+set(GGML_BUILD_EXAMPLES   OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS     OFF CACHE BOOL "" FORCE)
+
+# OmniVoice's audio-tokenizer tensor names exceed ggml's default of 64.
+# This has to be set before ggml is configured so every translation unit
+# agrees on sizeof(ggml_tensor) — a mismatch here is a silent memory bug.
+add_compile_definitions(GGML_MAX_NAME=128)
+
+add_subdirectory("${OV_DIR}/ggml" "${CMAKE_CURRENT_BINARY_DIR}/ggml" EXCLUDE_FROM_ALL)
+
+# omnivoice.cpp includes "version.h", normally emitted by a git-driven custom
+# target we don't run here. Generate an equivalent.
+set(OV_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY "${OV_GENERATED_DIR}")
+file(WRITE "${OV_GENERATED_DIR}/version.h"
+     "#pragma once\n#define OMNIVOICE_VERSION \"voxclone-android\"\n")
+
+add_library(qwen3tts_jni SHARED
+    ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/voxclone-jni.cpp
+    ${OV_DIR}/src/omnivoice.cpp
+    ${OV_DIR}/src/pipeline-codec.cpp
+    ${OV_DIR}/src/pipeline-tts.cpp
+)
+
+# Matches how omnivoice-core is built upstream: no dllimport/visibility games,
+# the engine sources and the JNI bridge live in the same binary.
+target_compile_definitions(qwen3tts_jni PRIVATE OMNIVOICE_STATIC)
 
 target_include_directories(qwen3tts_jni PRIVATE
-    ${QWEN3_CPP_DIR}/src
-    ${GGML_DIR}/include
+    ${OV_DIR}/src
+    ${OV_DIR}
+    ${OV_GENERATED_DIR}
+)
+target_include_directories(qwen3tts_jni SYSTEM PRIVATE
+    ${OV_DIR}/ggml/include
 )
 
-if(OMNIVOICE_AVAILABLE)
-    target_include_directories(qwen3tts_jni PRIVATE ${OV_CPP_DIR}/src)
-endif()
-
-target_link_directories(qwen3tts_jni PRIVATE
-    ${GGML_BUILD_DIR}
+target_compile_options(qwen3tts_jni PRIVATE
+    -O3
+    -fexceptions
+    -frtti
+    -Wno-unused-parameter
+    -Wno-unused-function
 )
 
 target_link_libraries(qwen3tts_jni PRIVATE
@@ -53,11 +83,7 @@ target_link_libraries(qwen3tts_jni PRIVATE
     ggml-base
     ggml-cpu
     log
+    android
     atomic
     m
 )
-
-if(OMNIVOICE_AVAILABLE)
-    target_link_directories(qwen3tts_jni PRIVATE ${OV_BUILD_DIR})
-    target_link_libraries(qwen3tts_jni PRIVATE omnivoice)
-endif()

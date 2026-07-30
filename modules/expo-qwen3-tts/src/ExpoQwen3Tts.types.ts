@@ -3,8 +3,8 @@
  * Contains raw PCM audio samples ready for playback.
  */
 export interface Qwen3TtsResult {
-  /** Raw PCM audio samples as number[] (float32 values, range [-1, 1]) */
-  samples: number[];
+  /** Local file URI to the generated WAV file */
+  audioUri: string;
   /** Sample rate in Hz (typically 24000) */
   sampleRate: number;
   /** Duration in seconds */

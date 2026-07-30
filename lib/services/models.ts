@@ -6,8 +6,7 @@ export interface TTSModel {
   id: string;
   name: string;
   description: string;
-  hfModelId: string;
-  ggufFiles: string[];
+  ggufFiles: { name: string; url: string }[];
   type: 'qwen3' | 'omnivoice';
   size: number;
   languages: string[];
@@ -20,20 +19,15 @@ export interface ModelState {
   available: TTSModel[];
 }
 
-// ─── HuggingFace repo for GGUF quantized models ───
-const QWEN3_GGUF_REPO = 'https://huggingface.co/predict-woo/qwen3-tts-gguf/resolve/main';
-const OMNIVOICE_GGUF_REPO = 'https://huggingface.co/bluryar/omnivoice-gguf/resolve/main';
-
 // ─── Master catalog ───
 const MODEL_CATALOG: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
   {
     id: 'qwen3-tts-06b',
     name: 'Qwen3-TTS 0.6B',
     description: 'Synthèse vocale & clonage de voix — GGUF Q8_0',
-    hfModelId: 'predict-woo/qwen3-tts-gguf',
     ggufFiles: [
-      'qwen3-tts-0.6b-f16.gguf',
-      'qwen3-tts-tokenizer-f16.gguf',
+      { name: 'qwen3-tts-0.6b-f16.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-0.6b-base-GGUF/resolve/main/qwen3-tts-0.6b-f16.gguf' },
+      { name: 'qwen3-tts-tokenizer-f16.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-tokenizer-12hz-GGUF/resolve/main/qwen3-tts-tokenizer-f16.gguf' },
     ],
     type: 'qwen3',
     size: 640 * 1024 * 1024,
@@ -43,10 +37,9 @@ const MODEL_CATALOG: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
     id: 'omnivoice-base',
     name: 'OmniVoice',
     description: 'Synthèse vocale 646 langues + voice design — GGUF Q4_K_M',
-    hfModelId: 'bluryar/omnivoice-gguf',
     ggufFiles: [
-      'omnivoice-base-Q4_K_M.gguf',
-      'omnivoice-tokenizer-Q8_0.gguf',
+      { name: 'omnivoice-base-Q4_K_M.gguf', url: 'https://huggingface.co/Serveurperso/OmniVoice-GGUF/resolve/main/omnivoice-base-Q4_K_M.gguf' },
+      { name: 'omnivoice-tokenizer-Q8_0.gguf', url: 'https://huggingface.co/Serveurperso/OmniVoice-GGUF/resolve/main/omnivoice-tokenizer-Q8_0.gguf' },
     ],
     type: 'omnivoice',
     size: 450 * 1024 * 1024,
@@ -128,8 +121,9 @@ class ModelsService {
     let totalDownloaded = 0;
 
     for (let i = 0; i < totalFiles; i++) {
-      const fileName = model.ggufFiles[i];
-      const fileUrl = `${model.type === 'omnivoice' ? OMNIVOICE_GGUF_REPO : QWEN3_GGUF_REPO}/${fileName}`;
+      const fileInfo = model.ggufFiles[i];
+      const fileName = fileInfo.name;
+      const fileUrl = fileInfo.url;
       const filePath = `${modelDir}/${fileName}`;
 
       try {

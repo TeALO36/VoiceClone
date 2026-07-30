@@ -12,10 +12,7 @@ android {
     defaultConfig {
         externalNativeBuild {
             cmake {
-                cppFlags "-std=c++17 -O3 -fexceptions -frtti"
-                arguments "-DANDROID_STL=c++_shared",
-                          "-DGGML_NATIVE=OFF",
-                          "-DGGML_OPENMP=OFF"
+                arguments "-DANDROID_STL=c++_shared"
             }
         }
 
@@ -27,21 +24,14 @@ android {
     externalNativeBuild {
         cmake {
             path "CMakeLists.txt"
+            version "3.22.1"
         }
     }
 
-    sourceSets {
-        main {
-            jniLibs.srcDirs = [
-                "${projectDir}/../../../qwen3-tts-cpp/ggml/build/src",
-                "${projectDir}/../../../omnivoice-cpp/build"
-            ]
-        }
-    }
-
-    buildFeatures {
-        prefab true
-    }
+    // No jniLibs.srcDirs here on purpose. CMake builds ggml and the engine
+    // straight into libqwen3tts_jni.so, so there is nothing to stage. Pointing
+    // jniLibs at CMake build directories is what made mergeReleaseJniLibFolders
+    // fail on duplicate cmake_install.cmake files.
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
