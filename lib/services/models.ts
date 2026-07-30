@@ -45,22 +45,24 @@ const MODEL_CATALOG: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
     size: 407485216 + 288889600,
     languages: ['646+ langues', 'Français', 'English', '中文', '日本語', '한국어', 'Deutsch', 'Español'],
   },
-  // Qwen3-TTS is built, working and measurably better than OmniVoice — it needs
-  // no reference transcript and runs at RTF ~3.7 against OmniVoice's ~9 at its
-  // fastest preset. It is absent here only because the weights have nowhere
-  // public to live yet.
-  //
-  // Every Qwen3-TTS GGUF on HuggingFace (the cstr/* repos) targets CrispASR, a
-  // different runtime: it ships code_pred.output.N.weight where this engine
-  // wants code_pred.lm_head.*, and no pre_tfm block at all. Files converted with
-  // qwen3-tts.cpp's own scripts/convert_tts_to_gguf.py load and clone correctly
-  // (verified locally), but a private repo's release assets 404 for anonymous
-  // clients, so they cannot be served from this project.
-  //
-  // To enable: publish the converted q8_0 pair to a public host and add an entry
-  // with type: 'qwen3' and the two filenames load_models() hardcodes —
-  // qwen3-tts-0.6b-q8_0.gguf and qwen3-tts-tokenizer-f16.gguf. Everything else,
-  // native dispatch included, is already in place.
+  {
+    id: 'qwen3-tts-06b',
+    name: 'Qwen3-TTS 0.6B',
+    description: 'Clonage sans transcription — génération 2× plus rapide',
+    // Served from TeALO/qwen3-tts-gguf because the other Qwen3-TTS GGUFs on the
+    // Hub (cstr/*) target CrispASR, a different runtime: they ship
+    // code_pred.output.N.weight where this engine wants code_pred.lm_head.*,
+    // and no pre_tfm block at all. These come from qwen3-tts.cpp's own
+    // converter, so the layout matches by construction. The filenames are the
+    // ones Qwen3TTS::load_models hardcodes — renaming them breaks loading.
+    ggufFiles: [
+      { name: 'qwen3-tts-0.6b-q8_0.gguf', url: 'https://huggingface.co/TeALO/qwen3-tts-gguf/resolve/main/qwen3-tts-0.6b-q8_0.gguf' },
+      { name: 'qwen3-tts-tokenizer-f16.gguf', url: 'https://huggingface.co/TeALO/qwen3-tts-gguf/resolve/main/qwen3-tts-tokenizer-f16.gguf' },
+    ],
+    type: 'qwen3',
+    size: 1_342_925_920 + 273_327_360,
+    languages: ['Français', 'English', '中文', '日本語', '한국어', 'Deutsch', 'Русский', 'Português', 'Español', 'Italiano'],
+  },
 ];
 
 // Bumped to v2 when the on-disk GGUF filenames changed. Anything recorded
