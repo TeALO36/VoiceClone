@@ -2,7 +2,7 @@ import { View, Text, Pressable, ActivityIndicator } from 'react-native';
 import { useColors } from '@/hooks/use-colors';
 import * as Haptics from 'expo-haptics';
 import { Audio } from 'expo-av';
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { Qwen3TtsResult } from '@/modules/expo-qwen3-tts';
 
 interface AudioPlayerProps {
@@ -19,6 +19,15 @@ export function AudioPlayer({ result, label = 'Écouter' }: AudioPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const soundRef = useRef<Audio.Sound | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (soundRef.current) {
+        soundRef.current.stopAsync();
+        soundRef.current.unloadAsync();
+      }
+    };
+  }, []);
 
   const handlePlay = async () => {
     if (isPlaying && soundRef.current) {

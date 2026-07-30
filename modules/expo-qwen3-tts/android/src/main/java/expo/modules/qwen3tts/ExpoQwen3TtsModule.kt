@@ -28,8 +28,19 @@ class ExpoQwen3TtsModule : Module() {
     private external fun nativeGetSampleRate(): Int
     private external fun nativeGetLastError(): String
 
-
-
+    private fun cleanupOldAudioFiles() {
+        val cacheDir = appContext.reactContext?.cacheDir ?: return
+        val files = cacheDir.listFiles { _, name -> name.startsWith("synth_") || name.startsWith("clone_") }
+        if (files != null) {
+            val now = System.currentTimeMillis()
+            // Delete files older than 1 hour (3600000 ms)
+            for (file in files) {
+                if (now - file.lastModified() > 3600000) {
+                    file.delete()
+                }
+            }
+        }
+    }
     override fun definition() = ModuleDefinition {
         Name("ExpoQwen3Tts")
 
@@ -63,6 +74,7 @@ class ExpoQwen3TtsModule : Module() {
 
         AsyncFunction("synthesize") { text: String, lang: String, instruct: String ->
             if (!nativeLoaded) throw IllegalStateException("Native library not loaded")
+            cleanupOldAudioFiles()
             val cacheDir = appContext.reactContext?.cacheDir
             val outFile = java.io.File.createTempFile("synth_", ".wav", cacheDir)
             val outPath = outFile.absolutePath
@@ -85,7 +97,7 @@ class ExpoQwen3TtsModule : Module() {
 
         AsyncFunction("cloneVoice") { text: String, lang: String, refText: String, referencePath: String ->
             if (!nativeLoaded) throw IllegalStateException("Native library not loaded")
-            
+            cleanupOldAudioFiles()
             val cacheDir = appContext.reactContext?.cacheDir
             val outFile = java.io.File.createTempFile("clone_", ".wav", cacheDir)
             val outPath = outFile.absolutePath

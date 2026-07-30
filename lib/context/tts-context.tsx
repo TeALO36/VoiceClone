@@ -70,6 +70,8 @@ export function TTSProvider({ children }: { children: ReactNode }) {
 
   const deleteModel = useCallback(async (modelId: string): Promise<boolean> => {
     try {
+      // Release the loaded model in C++ before deleting the files to prevent mmap crashes/file locking
+      await onDeviceTts.release();
       const success = await modelsService.deleteModel(modelId);
       if (success) {
         await refreshModels();
