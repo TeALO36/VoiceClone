@@ -20,7 +20,7 @@ class ExpoQwen3TtsModule : Module() {
     }
 
     // Native methods bridged to C++ via JNI
-    private external fun nativeInitModel(modelPath: String, codecPath: String): Boolean
+    private external fun nativeInitModel(modelDir: String, modelPath: String, codecPath: String, engine: String): Boolean
     private external fun nativeSynthesize(text: String, lang: String, instruct: String, outPath: String): Int
     private external fun nativeCloneVoice(text: String, lang: String, refPath: String, refText: String, outPath: String): Int
     private external fun nativeReleaseModel()
@@ -44,12 +44,15 @@ class ExpoQwen3TtsModule : Module() {
     override fun definition() = ModuleDefinition {
         Name("ExpoQwen3Tts")
 
-        AsyncFunction("initModel") { modelDir: String ->
+        // `engine` is "omnivoice" or "qwen3". It comes from the model catalog
+        // rather than being sniffed from the files: an OmniVoice loader handed a
+        // Qwen3 checkpoint fails deep inside pipeline_tts_load with an opaque error.
+        AsyncFunction("initModel") { modelDir: String, engine: String ->
             if (!nativeLoaded) throw IllegalStateException("Native library not loaded")
             val actualDir = if (modelDir.startsWith("file://")) modelDir.substring(7) else modelDir
             val dir = java.io.File(actualDir)
             if (!dir.exists() || !dir.isDirectory) throw IllegalArgumentException("modelDir must be a directory (got $actualDir)")
-            
+
             val files = dir.listFiles { _, name -> name.endsWith(".gguf") }
             if (files == null || files.isEmpty()) throw IllegalArgumentException("No .gguf files found in $actualDir")
 
@@ -58,7 +61,7 @@ class ExpoQwen3TtsModule : Module() {
 
             for (file in files) {
                 val lower = file.name.lowercase()
-                if (lower.contains("tokenizer")) {
+                if (lower.contains("tokenizer") || lower.contains("codec")) {
                     codecPath = file.absolutePath
                 } else {
                     modelPath = file.absolutePath
@@ -68,7 +71,13 @@ class ExpoQwen3TtsModule : Module() {
             if (modelPath.isEmpty() && files.isNotEmpty()) modelPath = files[0].absolutePath
             if (codecPath.isEmpty() && files.size >= 2) codecPath = files[1].absolutePath
 
-            if (!nativeInitModel(modelPath, codecPath)) {
+            if (engine != "qwen3" && codecPath.isEmpty()) {
+                throw IllegalArgumentException(
+                    "OmniVoice needs both a base and a tokenizer .gguf in $actualDir " +
+                    "(found ${files.size}: ${files.joinToString { it.name }})")
+            }
+
+            if (!nativeInitModel(actualDir, modelPath, codecPath, engine)) {
                 throw RuntimeException("Init failed: " + nativeGetLastError())
             }
         }

@@ -8,17 +8,26 @@ import type { Qwen3TtsResult } from '@/modules/expo-qwen3-tts';
 
 export type { Qwen3TtsResult };
 
+export type TtsEngine = 'omnivoice' | 'qwen3';
+
 export interface TTSOptions {
   text: string;
   language?: string;
   modelDir: string;
+  /** Which engine the files in modelDir belong to. Formats are not interchangeable. */
+  engine: TtsEngine;
+  /** OmniVoice voice-design attributes, e.g. "female young adult moderate". */
+  instruct?: string;
 }
 
 export interface CloneOptions {
   text: string;
   referenceAudioUri: string;
   modelDir: string;
+  engine: TtsEngine;
   language?: string;
+  /** Transcript of the reference clip, when known — improves cloning fidelity. */
+  referenceText?: string;
 }
 
 // ─── Language mapping ───
@@ -54,55 +63,58 @@ export const VOICE_PRESETS: Record<string, { label: string; emoji: string }> = {
 
 export class OnDeviceTTSService {
   private currentModelDir: string | null = null;
+  private currentEngine: TtsEngine | null = null;
 
   /**
-   * Initialize (load) the Qwen3-TTS model from a local GGUF directory.
+   * Load a model directory into the native engine.
    * Model must be downloaded first via the models service.
    */
-  async initModel(modelDir: string): Promise<void> {
-    if (this.currentModelDir === modelDir) {
-      const ready = await Qwen3Tts.isModelReady();
-      if (ready) return;
+  async initModel(modelDir: string, engine: TtsEngine): Promise<void> {
+    if (this.currentModelDir === modelDir && this.currentEngine === engine) {
+      if (await Qwen3Tts.isModelReady()) return;
     }
 
-    const success = await Qwen3Tts.initModel(modelDir);
-    if (!success) {
-      throw new Error(`Failed to load model from: ${modelDir}`);
+    // Switching models: drop the previous one first so two multi-hundred-MB
+    // checkpoints are never mapped at the same time.
+    if (this.currentModelDir && this.currentModelDir !== modelDir) {
+      await this.release();
     }
+
+    await Qwen3Tts.initModel(modelDir, engine);
     this.currentModelDir = modelDir;
+    this.currentEngine = engine;
   }
 
-  /**
-   * Synthesize text to speech using the on-device Qwen3-TTS model.
-   * Returns raw PCM audio data that can be played via expo-av.
-   */
+  /** Synthesize text to a WAV file on disk and return its URI. */
   async synthesize(options: TTSOptions): Promise<Qwen3TtsResult> {
     if (!options.text.trim()) {
       throw new Error('Le texte ne peut pas être vide');
     }
 
-    if (this.currentModelDir !== options.modelDir) {
-      await this.initModel(options.modelDir);
-    }
+    await this.initModel(options.modelDir, options.engine);
 
-    return await Qwen3Tts.synthesize(options.text.trim());
+    return await Qwen3Tts.synthesize(
+      options.text.trim(),
+      options.language ?? '',
+      options.instruct ?? ''
+    );
   }
 
-  /**
-   * Clone a voice from a reference audio file and synthesize text.
-   * Uses the ECAPA-TDNN speaker encoder in qwen3-tts.cpp for zero-shot cloning.
-   */
+  /** Clone the voice in `referenceAudioUri` and speak `text` with it. */
   async cloneVoice(options: CloneOptions): Promise<Qwen3TtsResult> {
     if (!options.text.trim()) {
       throw new Error('Le texte ne peut pas être vide');
     }
-
-    if (this.currentModelDir !== options.modelDir) {
-      await this.initModel(options.modelDir);
+    if (!options.referenceAudioUri) {
+      throw new Error('Aucun extrait de référence sélectionné');
     }
+
+    await this.initModel(options.modelDir, options.engine);
 
     return await Qwen3Tts.cloneVoice(
       options.text.trim(),
+      options.language ?? '',
+      options.referenceText ?? '',
       options.referenceAudioUri
     );
   }
@@ -113,6 +125,7 @@ export class OnDeviceTTSService {
   async release(): Promise<void> {
     await Qwen3Tts.releaseModel();
     this.currentModelDir = null;
+    this.currentEngine = null;
   }
 
   /**

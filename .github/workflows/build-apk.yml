@@ -39,13 +39,6 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Setup Android NDK
-        id: setup-ndk
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r27c
-          add-to-path: true
-
       - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
@@ -53,16 +46,14 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      - name: Install Ninja
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ninja-build cmake
-
-      - name: Build Native C++ Dependencies (GGML + qwen3-tts-cpp + omnivoice-cpp)
+      # Install the exact NDK and CMake that app.config.ts pins. Letting a
+      # third-party action pick a different revision (r27c = 27.2.x) meant
+      # Gradle silently fetched a second toolchain at build time.
+      - name: Install Android NDK 27.1.12297006 + CMake 3.22.1
         run: |
-          echo "NDK_HOME from action: ${{ steps.setup-ndk.outputs.ANDROID_NDK_HOME }}"
-          export ANDROID_NDK_HOME="${{ steps.setup-ndk.outputs.ANDROID_NDK_HOME }}"
-          chmod +x ./scripts/build-native-deps.sh
-          ./scripts/build-native-deps.sh
-        shell: bash
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "ndk;27.1.12297006" "cmake;3.22.1"
 
       - name: Generate Native Android Project
         run: npx expo prebuild --platform android --clean
