@@ -20,99 +20,94 @@ class ExpoQwen3TtsModule : Module() {
     }
 
     // Native methods bridged to C++ via JNI
-    private external fun nativeInitModel(modelDir: String): Boolean
-    private external fun nativeSynthesize(text: String): FloatArray?
-    private external fun nativeCloneVoice(text: String, referencePath: String): FloatArray?
+    private external fun nativeInitModel(modelPath: String, codecPath: String): Boolean
+    private external fun nativeSynthesize(text: String, lang: String, instruct: String, outPath: String): Int
+    private external fun nativeCloneVoice(text: String, lang: String, refPath: String, refText: String, outPath: String): Int
     private external fun nativeReleaseModel()
     private external fun nativeIsModelReady(): Boolean
     private external fun nativeGetSampleRate(): Int
+    private external fun nativeGetLastError(): String
 
-    private fun writeWavFile(samples: FloatArray, sampleRate: Int, cacheDir: java.io.File?): String {
-        val pcmData = ByteArray(samples.size * 2)
-        for (i in samples.indices) {
-            var s = (samples[i] * 32767.0f).toInt()
-            if (s > 32767) s = 32767
-            if (s < -32768) s = -32768
-            pcmData[i * 2] = (s and 0xFF).toByte()
-            pcmData[i * 2 + 1] = ((s shr 8) and 0xFF).toByte()
-        }
 
-        val numChannels = 1
-        val bitsPerSample = 16
-        val byteRate = sampleRate * numChannels * bitsPerSample / 8
-        val blockAlign = numChannels * bitsPerSample / 8
-        val dataSize = pcmData.size
-        val chunkSize = 36 + dataSize
-
-        val header = java.nio.ByteBuffer.allocate(44)
-        header.order(java.nio.ByteOrder.LITTLE_ENDIAN)
-        header.put("RIFF".toByteArray())
-        header.putInt(chunkSize)
-        header.put("WAVE".toByteArray())
-        header.put("fmt ".toByteArray())
-        header.putInt(16)
-        header.putShort(1)
-        header.putShort(numChannels.toShort())
-        header.putInt(sampleRate)
-        header.putInt(byteRate)
-        header.putShort(blockAlign.toShort())
-        header.putShort(bitsPerSample.toShort())
-        header.put("data".toByteArray())
-        header.putInt(dataSize)
-
-        val file = java.io.File.createTempFile("synth_", ".wav", cacheDir)
-        java.io.FileOutputStream(file).use { out ->
-            out.write(header.array())
-            out.write(pcmData)
-        }
-        return file.absolutePath
-    }
 
     override fun definition() = ModuleDefinition {
         Name("ExpoQwen3Tts")
 
         AsyncFunction("initModel") { modelDir: String ->
             if (!nativeLoaded) throw IllegalStateException("Native library not loaded")
-            nativeInitModel(modelDir)
+            val dir = java.io.File(modelDir)
+            if (!dir.exists() || !dir.isDirectory) throw IllegalArgumentException("modelDir must be a directory")
+            
+            val files = dir.listFiles { _, name -> name.endsWith(".gguf") }
+            if (files == null || files.isEmpty()) throw IllegalArgumentException("No .gguf files found in $modelDir")
+
+            var modelPath = ""
+            var codecPath = ""
+
+            for (file in files) {
+                val lower = file.name.lowercase()
+                if (lower.contains("tokenizer")) {
+                    codecPath = file.absolutePath
+                } else {
+                    modelPath = file.absolutePath
+                }
+            }
+
+            if (modelPath.isEmpty() && files.isNotEmpty()) modelPath = files[0].absolutePath
+            if (codecPath.isEmpty() && files.size >= 2) codecPath = files[1].absolutePath
+
+            if (!nativeInitModel(modelPath, codecPath)) {
+                throw RuntimeException("Init failed: " + nativeGetLastError())
+            }
         }
 
-        AsyncFunction("synthesize") { text: String ->
+        AsyncFunction("synthesize") { text: String, lang: String, instruct: String ->
             if (!nativeLoaded) throw IllegalStateException("Native library not loaded")
-            val samples = nativeSynthesize(text)
-                ?: throw RuntimeException("Synthesis failed")
-            val sampleRate = nativeGetSampleRate()
             val cacheDir = appContext.reactContext?.cacheDir
-            val path = writeWavFile(samples, sampleRate, cacheDir)
-
+            val outFile = java.io.File.createTempFile("synth_", ".wav", cacheDir)
+            val outPath = outFile.absolutePath
+            
+            val numSamples = nativeSynthesize(text, lang, instruct, outPath)
+            if (numSamples < 0) {
+                throw RuntimeException("Synthesis failed: " + nativeGetLastError())
+            }
+            
+            val sampleRate = nativeGetSampleRate()
+            
             mapOf(
-                "audioUri" to "file://$path",
+                "audioUri" to "file://$outPath",
                 "sampleRate" to sampleRate,
-                "duration" to (samples.size.toDouble() / sampleRate),
-                "frameCount" to (samples.size / 16),
+                "duration" to (numSamples.toDouble() / sampleRate),
+                "frameCount" to numSamples,
                 "text" to text
             )
         }
 
-        AsyncFunction("cloneVoice") { text: String, referencePath: String ->
+        AsyncFunction("cloneVoice") { text: String, lang: String, refText: String, referencePath: String ->
             if (!nativeLoaded) throw IllegalStateException("Native library not loaded")
             
+            val cacheDir = appContext.reactContext?.cacheDir
+            val outFile = java.io.File.createTempFile("clone_", ".wav", cacheDir)
+            val outPath = outFile.absolutePath
+
             val actualRefPath = if (referencePath.startsWith("file://")) {
                 referencePath.substring(7)
             } else {
                 referencePath
             }
 
-            val samples = nativeCloneVoice(text, actualRefPath)
-                ?: throw RuntimeException("Voice cloning failed")
+            val numSamples = nativeCloneVoice(text, lang, actualRefPath, refText, outPath)
+            if (numSamples < 0) {
+                throw RuntimeException("Voice cloning failed: " + nativeGetLastError())
+            }
+            
             val sampleRate = nativeGetSampleRate()
-            val cacheDir = appContext.reactContext?.cacheDir
-            val path = writeWavFile(samples, sampleRate, cacheDir)
 
             mapOf(
-                "audioUri" to "file://$path",
+                "audioUri" to "file://$outPath",
                 "sampleRate" to sampleRate,
-                "duration" to (samples.size.toDouble() / sampleRate),
-                "frameCount" to (samples.size / 16),
+                "duration" to (numSamples.toDouble() / sampleRate),
+                "frameCount" to numSamples,
                 "text" to text
             )
         }

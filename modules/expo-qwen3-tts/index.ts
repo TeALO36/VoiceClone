@@ -8,7 +8,7 @@ export type { Qwen3TtsResult } from './src/ExpoQwen3Tts.types';
  * Must be called once before synthesize or cloneVoice.
  * @param modelDir Path to directory containing .gguf model files
  */
-export async function initModel(modelDir: string): Promise<boolean> {
+export async function initModel(modelDir: string): Promise<void> {
   return ExpoQwen3TtsModule.initModel(modelDir);
 }
 
@@ -18,8 +18,12 @@ export async function initModel(modelDir: string): Promise<boolean> {
  * @param text Text to synthesize
  * @returns PCM audio data as Float32Array and sample rate
  */
-export async function synthesize(text: string): Promise<Qwen3TtsResult> {
-  return ExpoQwen3TtsModule.synthesize(text) as Promise<Qwen3TtsResult>;
+export async function synthesize(
+  text: string,
+  lang: string = 'en',
+  instruct: string = ''
+): Promise<Qwen3TtsResult> {
+  return ExpoQwen3TtsModule.synthesize(text, lang, instruct) as Promise<Qwen3TtsResult>;
 }
 
 /**
@@ -31,9 +35,11 @@ export async function synthesize(text: string): Promise<Qwen3TtsResult> {
  */
 export async function cloneVoice(
   text: string,
-  referencePath: string
+  lang: string = 'en',
+  refText: string = '',
+  refSamples: number[] | null = null
 ): Promise<Qwen3TtsResult> {
-  return ExpoQwen3TtsModule.cloneVoice(text, referencePath) as Promise<Qwen3TtsResult>;
+  return ExpoQwen3TtsModule.cloneVoice(text, lang, refText, refSamples) as Promise<Qwen3TtsResult>;
 }
 
 /**

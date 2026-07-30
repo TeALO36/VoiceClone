@@ -98,6 +98,44 @@ bool write_wav(const std::string & path, const float * samples, int n, int sampl
     return ok;
 }
 
+/** Read mono float PCM from a 16-bit WAV. */
+bool read_wav(const std::string & path, std::vector<float>& out_samples, int& out_sample_rate) {
+    FILE * f = std::fopen(path.c_str(), "rb");
+    if (!f) {
+        LOGE("Cannot open input WAV: %s", path.c_str());
+        return false;
+    }
+    
+    uint8_t header[44];
+    if (std::fread(header, 1, sizeof(header), f) != sizeof(header)) {
+        std::fclose(f);
+        return false;
+    }
+    
+    if (std::memcmp(header, "RIFF", 4) != 0 || std::memcmp(header + 8, "WAVEfmt ", 8) != 0) {
+        std::fclose(f);
+        return false;
+    }
+    
+    out_sample_rate = header[24] | (header[25] << 8) | (header[26] << 16) | (header[27] << 24);
+    uint32_t data_bytes = header[40] | (header[41] << 8) | (header[42] << 16) | (header[43] << 24);
+    uint32_t num_samples = data_bytes / 2;
+    
+    std::vector<int16_t> pcm(num_samples);
+    if (std::fread(pcm.data(), sizeof(int16_t), num_samples, f) != num_samples) {
+        LOGE("Short read on %s", path.c_str());
+    }
+    
+    std::fclose(f);
+    
+    out_samples.resize(num_samples);
+    for (size_t i = 0; i < num_samples; i++) {
+        out_samples[i] = pcm[i] / 32768.0f;
+    }
+    
+    return true;
+}
+
 /**
  * Shared body of synthesize/cloneVoice. `ref` may be null for plain TTS.
  * Returns the number of samples written, or -1 on failure.
@@ -106,7 +144,7 @@ jint run_synthesis(JNIEnv * env,
                    jstring     jText,
                    jstring     jLang,
                    jstring     jInstruct,
-                   jfloatArray jRef,
+                   jstring     jRefPath,
                    jstring     jRefText,
                    jstring     jOutPath) {
 
@@ -135,23 +173,23 @@ jint run_synthesis(JNIEnv * env,
     p.instruct = instruct.empty() ? nullptr : instruct.c_str();
 
     // Reference samples stay pinned for the whole ov_synthesize call.
-    jfloat * ref_pin = nullptr;
-    jsize    ref_len = 0;
-    if (jRef) {
-        ref_len = env->GetArrayLength(jRef);
-        if (ref_len > 0) {
-            ref_pin = env->GetFloatArrayElements(jRef, nullptr);
-            p.ref_audio_24k = ref_pin;
-            p.ref_n_samples = (int)ref_len;
-            if (!ref_text.empty()) p.ref_text = ref_text.c_str();
-            LOGD("Cloning with %d reference samples (%.1fs)", (int)ref_len, ref_len / 24000.0);
+    std::vector<float> ref_audio;
+    int ref_sample_rate = 24000;
+    if (jRefPath) {
+        const std::string ref_path = jstr(env, jRefPath);
+        if (!ref_path.empty()) {
+            if (read_wav(ref_path, ref_audio, ref_sample_rate)) {
+                // If it's not 24kHz, we ideally should resample, but we assume the caller provided 24kHz
+                p.ref_audio_24k = ref_audio.data();
+                p.ref_n_samples = (int)ref_audio.size();
+                if (!ref_text.empty()) p.ref_text = ref_text.c_str();
+                LOGD("Cloning with %d reference samples (%.1fs)", (int)ref_audio.size(), ref_audio.size() / (double)ref_sample_rate);
+            }
         }
     }
 
     ov_audio out = {0};
     const ov_status rc = ov_synthesize(g_ov, &p, &out);
-
-    if (ref_pin) env->ReleaseFloatArrayElements(jRef, ref_pin, JNI_ABORT);
 
     if (rc != OV_STATUS_OK || out.n_samples <= 0) {
         char buf[64];
@@ -215,9 +253,9 @@ Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeSynthesize(
 
 JNIEXPORT jint JNICALL
 Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeCloneVoice(
-    JNIEnv * env, jobject, jstring text, jstring lang, jfloatArray ref,
+    JNIEnv * env, jobject, jstring text, jstring lang, jstring refPath,
     jstring refText, jstring outPath) {
-    return run_synthesis(env, text, lang, nullptr, ref, refText, outPath);
+    return run_synthesis(env, text, lang, nullptr, refPath, refText, outPath);
 }
 
 JNIEXPORT void JNICALL

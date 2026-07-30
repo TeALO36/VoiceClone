@@ -26,11 +26,23 @@ const MODEL_CATALOG: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
     name: 'Qwen3-TTS 0.6B',
     description: 'Synthèse vocale & clonage de voix — GGUF Q8_0',
     ggufFiles: [
-      { name: 'qwen3-tts-0.6b-f16.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-0.6b-base-GGUF/resolve/main/qwen3-tts-0.6b-f16.gguf' },
-      { name: 'qwen3-tts-tokenizer-f16.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-tokenizer-12hz-GGUF/resolve/main/qwen3-tts-tokenizer-f16.gguf' },
+      { name: 'qwen3-tts-12hz-0.6b-base-q8_0.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-0.6b-base-GGUF/resolve/main/qwen3-tts-12hz-0.6b-base-q8_0.gguf' },
+      { name: 'qwen3-tts-tokenizer-12hz-q8_0.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-tokenizer-12hz-GGUF/resolve/main/qwen3-tts-tokenizer-12hz-q8_0.gguf' },
     ],
     type: 'qwen3',
-    size: 640 * 1024 * 1024,
+    size: 985 * 1024 * 1024,
+    languages: ['Chinese', 'English', 'Japanese', 'Korean', 'German', 'French', 'Russian', 'Portuguese', 'Spanish', 'Italian'],
+  },
+  {
+    id: 'qwen3-tts-17b',
+    name: 'Qwen3-TTS 1.7B',
+    description: 'Modèle haute qualité (1.7B) — GGUF Q8_0',
+    ggufFiles: [
+      { name: 'qwen3-tts-12hz-1.7b-base-q8_0.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-1.7b-base-GGUF/resolve/main/qwen3-tts-12hz-1.7b-base-q8_0.gguf' },
+      { name: 'qwen3-tts-tokenizer-12hz-q8_0.gguf', url: 'https://huggingface.co/cstr/qwen3-tts-tokenizer-12hz-GGUF/resolve/main/qwen3-tts-tokenizer-12hz-q8_0.gguf' },
+    ],
+    type: 'qwen3',
+    size: 2066 * 1024 * 1024,
     languages: ['Chinese', 'English', 'Japanese', 'Korean', 'German', 'French', 'Russian', 'Portuguese', 'Spanish', 'Italian'],
   },
   {
@@ -42,7 +54,7 @@ const MODEL_CATALOG: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
       { name: 'omnivoice-tokenizer-Q8_0.gguf', url: 'https://huggingface.co/Serveurperso/OmniVoice-GGUF/resolve/main/omnivoice-tokenizer-Q8_0.gguf' },
     ],
     type: 'omnivoice',
-    size: 450 * 1024 * 1024,
+    size: 660 * 1024 * 1024,
     languages: ['646+ languages', 'Français', 'English', '中文', '日本語', '한국어', 'Deutsch', 'Español'],
   },
 ];
