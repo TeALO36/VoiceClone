@@ -139,19 +139,31 @@ class ModelsService {
       const filePath = `${modelDir}/${fileName}`;
 
       try {
-        const downloadResult = await FileSystem.downloadAsync(
+        // Base progress from already downloaded files
+        const baseProgress = (i / totalFiles) * 100;
+        
+        const downloadResumable = FileSystem.createDownloadResumable(
           fileUrl,
           filePath,
+          {},
+          (downloadProgress) => {
+            const fileProgress = downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite;
+            // File contributes 1/totalFiles to overall progress
+            const overallProgress = baseProgress + (fileProgress * (100 / totalFiles));
+            onProgress?.(Math.min(99, Math.round(overallProgress)));
+          }
         );
 
-        if (downloadResult.status !== 200) {
-          console.error(`Failed to download ${fileName}: HTTP ${downloadResult.status}`);
+        const downloadResult = await downloadResumable.downloadAsync();
+
+        if (!downloadResult || downloadResult.status !== 200) {
+          console.error(`Failed to download ${fileName}: HTTP ${downloadResult?.status}`);
           return false;
         }
 
         totalDownloaded++;
-        const fileProgress = (totalDownloaded / totalFiles) * 100;
-        onProgress?.(Math.round(fileProgress));
+        const currentProgress = (totalDownloaded / totalFiles) * 100;
+        onProgress?.(Math.round(currentProgress));
       } catch (error) {
         console.error(`Download error for ${fileName}:`, error);
         return false;
