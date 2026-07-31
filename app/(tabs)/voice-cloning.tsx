@@ -10,7 +10,7 @@ import { Audio } from 'expo-av';
 import { getSupportedLanguages } from '@/lib/services/local-tts';
 import { prepareReference, type Quality } from '@/modules/expo-qwen3-tts';
 
-const LANGUAGES = getSupportedLanguages();
+
 
 interface PickedFile {
   name: string;
@@ -103,6 +103,12 @@ export default function VoiceCloningScreen() {
   // OmniVoice can use one for extra context but clones fine without it, so the
   // field is offered rather than required.
   const usesRefText = activeModel?.type === 'omnivoice';
+  const LANGUAGES = getSupportedLanguages(activeModel?.type);
+  // Switching to an engine with a narrower language set must not leave a
+  // stale selection the engine would silently reinterpret as English.
+  const effectiveLanguage = LANGUAGES.some((l) => l.id === selectedLanguage)
+    ? selectedLanguage
+    : LANGUAGES[0]?.id ?? 'en';
 
   const hasModels = installedModels.length > 0;
 
@@ -208,7 +214,7 @@ export default function VoiceCloningScreen() {
     const spoken = cloneText.trim();
     const referenceUri = selectedFile.uri;
     const referenceText = refText.trim();
-    const language = selectedLanguage;
+    const language = effectiveLanguage;
     const chosenQuality = quality;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
@@ -360,7 +366,7 @@ export default function VoiceCloningScreen() {
                   }}
                   style={({ pressed }) => [
                     {
-                      backgroundColor: selectedLanguage === item.id ? colors.primary : colors.surface,
+                      backgroundColor: effectiveLanguage === item.id ? colors.primary : colors.surface,
                       opacity: pressed ? 0.8 : 1,
                       flex: 1,
                     },
@@ -368,7 +374,7 @@ export default function VoiceCloningScreen() {
                   className="rounded-lg p-3 border border-border"
                 >
                   <Text className="text-lg text-center mb-1">{item.flag}</Text>
-                  <Text className={selectedLanguage === item.id ? 'text-white font-semibold text-center text-xs' : 'text-foreground font-semibold text-center text-xs'}>
+                  <Text className={effectiveLanguage === item.id ? 'text-white font-semibold text-center text-xs' : 'text-foreground font-semibold text-center text-xs'}>
                     {item.name}
                   </Text>
                 </Pressable>

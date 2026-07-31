@@ -44,7 +44,21 @@ export interface CloneOptions {
 }
 
 // ─── Language mapping ───
-export function getSupportedLanguages(): { id: string; name: string; flag: string }[] {
+//
+// Qwen3-TTS conditions on a fixed set of ten language ids and silently speaks
+// English for anything else, so the picker is filtered per engine rather than
+// offering choices one of them cannot honour. OmniVoice resolves ISO codes
+// against a 646-entry table and covers all of these.
+const QWEN3_LANGUAGES = new Set(['zh', 'en', 'ja', 'ko', 'de', 'fr', 'ru', 'pt', 'es', 'it']);
+
+export function getSupportedLanguages(
+  engine?: TtsEngine
+): { id: string; name: string; flag: string }[] {
+  const all = allLanguages();
+  return engine === 'qwen3' ? all.filter((l) => QWEN3_LANGUAGES.has(l.id)) : all;
+}
+
+function allLanguages(): { id: string; name: string; flag: string }[] {
   return [
     { id: 'fr', name: 'Français', flag: '🇫🇷' },
     { id: 'en', name: 'English', flag: '🇬🇧' },
