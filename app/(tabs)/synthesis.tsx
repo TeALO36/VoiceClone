@@ -13,7 +13,7 @@ const VOICE_LIST = Object.entries(VOICE_PRESETS).map(([id, preset]) => ({
   emoji: preset.emoji,
 }));
 
-const LANGUAGES = getSupportedLanguages();
+
 
 export default function SynthesisScreen() {
   const colors = useColors();
@@ -23,6 +23,15 @@ export default function SynthesisScreen() {
   const [selectedModelId, setSelectedModelId] = useState<string>('');
   const [selectedLanguage, setSelectedLanguage] = useState('fr');
   const [selectedVoice, setSelectedVoice] = useState('male-neutral');
+
+  const activeModel =
+    installedModels.find((m) => m.id === selectedModelId) ?? installedModels[0];
+  const LANGUAGES = getSupportedLanguages(activeModel?.type);
+  // Switching to an engine with a narrower language set must not leave a
+  // stale selection the engine would silently reinterpret as English.
+  const effectiveLanguage = LANGUAGES.some((l) => l.id === selectedLanguage)
+    ? selectedLanguage
+    : LANGUAGES[0]?.id ?? 'en';
 
   const runningCount = jobs.filter(
     (job) => job.kind === 'synthesis' && (job.status === 'queued' || job.status === 'running')
@@ -43,7 +52,7 @@ export default function SynthesisScreen() {
     }
 
     const spoken = text.trim();
-    const language = selectedLanguage;
+    const language = effectiveLanguage;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     // Queued rather than awaited: the user can keep typing and fire the next
@@ -134,7 +143,7 @@ export default function SynthesisScreen() {
                 }}
                 style={({ pressed }) => [
                   {
-                    backgroundColor: selectedLanguage === item.id ? colors.primary : colors.surface,
+                    backgroundColor: effectiveLanguage === item.id ? colors.primary : colors.surface,
                     opacity: pressed ? 0.8 : 1,
                     flex: 1,
                   },
@@ -143,7 +152,7 @@ export default function SynthesisScreen() {
               >
                 <Text className="text-lg text-center mb-1">{item.flag}</Text>
                 <Text
-                  className={selectedLanguage === item.id ? 'text-white font-semibold text-center text-xs' : 'text-foreground font-semibold text-center text-xs'}
+                  className={effectiveLanguage === item.id ? 'text-white font-semibold text-center text-xs' : 'text-foreground font-semibold text-center text-xs'}
                 >
                   {item.name}
                 </Text>

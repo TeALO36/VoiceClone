@@ -52,6 +52,41 @@ void set_error(const char * what) {
     LOGE("%s", g_last_error.c_str());
 }
 
+/**
+ * Qwen3-TTS conditions on a numeric language id, not on the ISO string that
+ * OmniVoice takes. Values mirror qwen3-tts.cpp's own CLI table. The model
+ * covers ten languages; anything else falls back to English, which is also what
+ * qwen3_tts_default_params does.
+ */
+int32_t qwen3_language_id(const std::string & iso) {
+    if (iso == "en") return 2050;
+    if (iso == "de") return 2053;
+    if (iso == "es") return 2054;
+    if (iso == "zh") return 2055;
+    if (iso == "ja") return 2058;
+    if (iso == "fr") return 2061;
+    if (iso == "ko") return 2064;
+    if (iso == "ru") return 2069;
+    if (iso == "it") return 2070;
+    if (iso == "pt") return 2071;
+    return 2050;
+}
+
+/**
+ * Cap on generated audio tokens, scaled to the text.
+ *
+ * The default of 4096 allows roughly five minutes of audio at 12.5 Hz, so a
+ * sampler that fails to emit end-of-sequence can run for far longer than the
+ * text warrants — a single word coming back as ten seconds of speech. Budget
+ * generously (a slow speaker needs about one second per ten characters) then
+ * add headroom, so normal output is never truncated.
+ */
+int32_t token_budget_for(const std::string & text) {
+    const double seconds = 3.0 + (double)text.size() / 5.0;
+    const int32_t tokens = (int32_t)(seconds * 12.5);
+    return tokens < 64 ? 64 : (tokens > 4096 ? 4096 : tokens);
+}
+
 void release_all() {
     if (g_ov) { ov_free(g_ov); g_ov = nullptr; }
     if (g_q3) { qwen3_tts_destroy(g_q3); g_q3 = nullptr; }
@@ -191,10 +226,19 @@ jint run_synthesis(JNIEnv * env,
     if (g_engine == ENGINE_QWEN3) {
         const std::string ref_path = jstr(env, jRefPath);
 
+        // Per-call, not baked into the loaded model: language and length both
+        // depend on what is being spoken. Leaving language_id at its default
+        // meant every generation came out English whatever the user picked.
+        Qwen3TtsParams params = g_q3_params;
+        params.language_id      = qwen3_language_id(lang);
+        params.max_audio_tokens = token_budget_for(text);
+        LOGD("Qwen3: lang=%s id=%d budget=%d tokens",
+             lang.c_str(), params.language_id, params.max_audio_tokens);
+
         Qwen3TtsAudio * audio = ref_path.empty()
-            ? qwen3_tts_synthesize(g_q3, text.c_str(), &g_q3_params)
+            ? qwen3_tts_synthesize(g_q3, text.c_str(), &params)
             : qwen3_tts_synthesize_with_voice_file(g_q3, text.c_str(),
-                                                   ref_path.c_str(), &g_q3_params);
+                                                   ref_path.c_str(), &params);
 
         if (!audio || audio->n_samples <= 0) {
             set_error(ref_path.empty() ? "Synthesis failed" : "Voice cloning failed");
