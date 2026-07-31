@@ -7,7 +7,7 @@ import * as Haptics from 'expo-haptics';
 
 export default function HomeScreen() {
   const colors = useColors();
-  const { installedModels, availableModels, totalStorageUsed, freeStorage } = useTTS();
+  const { installedModels, availableModels } = useTTS();
   const router = useRouter();
 
   const formatBytes = (bytes: number) => {
@@ -81,32 +81,6 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        {/* Storage Info */}
-        <View className="px-6 mb-8">
-          <View className="bg-surface rounded-2xl p-4 border border-border">
-            <View className="flex-row justify-between items-center mb-3">
-              <Text className="text-sm font-semibold text-foreground">Modèles sur l&apos;appareil</Text>
-              <Text className="text-sm font-semibold text-primary">{formatBytes(totalStorageUsed)}</Text>
-            </View>
-            {/* Share of the space the app could still use — the models plus what
-                is actually free — rather than an arbitrary ceiling. */}
-            <View className="h-2 bg-border rounded-full overflow-hidden">
-              <View
-                className="h-full bg-primary"
-                style={{
-                  width: `${
-                    totalStorageUsed + freeStorage > 0
-                      ? Math.min((totalStorageUsed / (totalStorageUsed + freeStorage)) * 100, 100)
-                      : 0
-                  }%`,
-                }}
-              />
-            </View>
-            <Text className="text-xs text-muted mt-2">
-              {formatBytes(freeStorage)} libres sur l&apos;appareil
-            </Text>
-          </View>
-        </View>
 
         {/* Installed Models — ONLY installed models, no duplicates */}
         {installedModels.length > 0 && (
