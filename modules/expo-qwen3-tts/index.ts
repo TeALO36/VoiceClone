@@ -40,7 +40,7 @@ export async function synthesize(
   text: string,
   lang: string = 'en',
   instruct: string = '',
-  quality: Quality = 'fast'
+  quality: Quality = 'best'
 ): Promise<Qwen3TtsResult> {
   return ExpoQwen3TtsModule.synthesize(
     text, lang, instruct, QUALITY_STEPS[quality]
@@ -59,7 +59,7 @@ export async function cloneVoice(
   lang: string = 'en',
   refText: string = '',
   referencePath: string,
-  quality: Quality = 'fast'
+  quality: Quality = 'best'
 ): Promise<Qwen3TtsResult> {
   return ExpoQwen3TtsModule.cloneVoice(
     text, lang, refText, referencePath, QUALITY_STEPS[quality]

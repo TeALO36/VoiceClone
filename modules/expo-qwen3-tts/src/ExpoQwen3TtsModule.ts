@@ -14,10 +14,15 @@ export interface PreparedReference {
 }
 
 /**
- * MaskGIT decode steps. Generation time scales linearly with this, and it is by
- * far the dominant cost. Measured on a desktop CPU, cloning 1.8 s of speech:
- * 32 steps = 68 s, 16 steps = 35 s, 8 steps = 17 s. A phone is slower still,
- * so the upstream default of 32 is not a usable default here.
+ * MaskGIT decode steps. Generation time scales linearly with this — cloning
+ * 1.8 s of speech on a desktop CPU took 68 s at 32 steps, 35 s at 16, 17 s at 8.
+ *
+ * Tempting as the low end is, 32 is the reference configuration and the default
+ * here. Shipping 8 as the default produced speech that did not sound like the
+ * requested language at all: too few steps leaves the MaskGIT sampler
+ * under-converged and the output is closer to babble than to words. Speed is
+ * worth nothing if the audio is unusable — reach for the faster presets
+ * deliberately, or use Qwen3-TTS, which is faster without this trade-off.
  */
 export const QUALITY_STEPS = { fast: 8, balanced: 16, best: 32 } as const;
 export type Quality = keyof typeof QUALITY_STEPS;

@@ -57,7 +57,7 @@ export default function SynthesisScreen() {
         modelDir,
         engine: model.type,
         language,
-        quality: 'fast',
+        quality: 'best',
       });
     });
 

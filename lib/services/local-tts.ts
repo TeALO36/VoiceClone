@@ -56,7 +56,7 @@ export function getSupportedLanguages(): { id: string; name: string; flag: strin
     { id: 'ko', name: '한국어', flag: '🇰🇷' },
     { id: 'ru', name: 'Русский', flag: '🇷🇺' },
     { id: 'pt', name: 'Português', flag: '🇧🇷' },
-    { id: 'ar', name: 'العربية', flag: '🇸🇦' },
+    { id: 'arb', name: 'العربية', flag: '🇸🇦' },
     { id: 'hi', name: 'हिन्दी', flag: '🇮🇳' },
     { id: 'tr', name: 'Türkçe', flag: '🇹🇷' },
     { id: 'nl', name: 'Nederlands', flag: '🇳🇱' },
@@ -110,7 +110,7 @@ export class OnDeviceTTSService {
       options.text.trim(),
       options.language ?? '',
       options.instruct ?? '',
-      options.quality ?? 'fast'
+      options.quality ?? 'best'
     );
   }
 
@@ -130,7 +130,7 @@ export class OnDeviceTTSService {
       options.language ?? '',
       options.referenceText?.trim() ?? '',
       options.referenceAudioUri,
-      options.quality ?? 'fast'
+      options.quality ?? 'best'
     );
   }
 

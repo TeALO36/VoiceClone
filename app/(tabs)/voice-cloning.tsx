@@ -91,7 +91,7 @@ export default function VoiceCloningScreen() {
   const [refDuration, setRefDuration] = useState<number | null>(null);
   const [selectedModelId, setSelectedModelId] = useState<string>('');
   const [refText, setRefText] = useState('');
-  const [quality, setQuality] = useState<Quality>('fast');
+  const [quality, setQuality] = useState<Quality>('best');
 
   const runningCount = jobs.filter(
     (job) => job.kind === 'clone' && (job.status === 'queued' || job.status === 'running')
@@ -422,9 +422,9 @@ export default function VoiceCloningScreen() {
             <Text className="text-sm font-semibold text-foreground mb-3">Qualité</Text>
             <View className="flex-row gap-2">
               {([
-                { id: 'fast' as Quality, label: 'Rapide', hint: '×1' },
-                { id: 'balanced' as Quality, label: 'Équilibré', hint: '×2' },
-                { id: 'best' as Quality, label: 'Maximale', hint: '×4' },
+                { id: 'best' as Quality, label: 'Fidèle', hint: 'recommandé' },
+                { id: 'balanced' as Quality, label: 'Équilibré', hint: '2× plus vite' },
+                { id: 'fast' as Quality, label: 'Rapide', hint: 'peut bafouiller' },
               ]).map((option) => {
                 const active = quality === option.id;
                 return (
@@ -454,7 +454,7 @@ export default function VoiceCloningScreen() {
                         ? 'text-white/70 text-center text-xs mt-1'
                         : 'text-muted text-center text-xs mt-1'}
                     >
-                      {option.hint} temps
+                      {option.hint}
                     </Text>
                   </Pressable>
                 );
@@ -462,7 +462,8 @@ export default function VoiceCloningScreen() {
             </View>
             <Text className="text-xs text-muted mt-2">
               La génération est lourde : comptez plusieurs dizaines de secondes par
-              phrase, même en mode Rapide.
+              phrase. Les modes accélérés sautent des étapes de décodage et la voix
+              peut devenir inintelligible — Qwen3-TTS est plus rapide sans ce compromis.
             </Text>
           </View>
         )}
