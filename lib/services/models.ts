@@ -6,7 +6,7 @@ export interface TTSModel {
   name: string;
   description: string;
   ggufFiles: { name: string; url: string }[];
-  type: 'qwen3' | 'omnivoice';
+  type: 'qwen3' | 'omnivoice' | 'pocket';
   size: number;
   languages: string[];
   isInstalled: boolean;
@@ -44,6 +44,32 @@ const MODEL_CATALOG: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
     type: 'omnivoice',
     size: 407485216 + 288889600,
     languages: ['646+ langues', 'Français', 'English', '中文', '日本語', '한국어', 'Deutsch', 'Español'],
+  },
+  {
+    id: 'pocket-tts',
+    name: 'Pocket TTS (Kyutai)',
+    description: 'Clonage zéro-shot 100M — très rapide sur CPU, modèle 2026 de Kyutai',
+    // Pocket TTS is a 100M-parameter zero-shot TTS from Kyutai, run through
+    // sherpa-onnx (ONNX Runtime). The five ONNX files are the flow LM, main LM,
+    // encoder, decoder and text conditioner; the two JSON files are the vocab
+    // and token scores. `voices/*.wav` are bundled reference voices so plain
+    // TTS works without any upload (Pocket TTS always needs a reference voice).
+    // Mirrored from the sherpa-onnx release archive to HuggingFace so each file
+    // can be downloaded individually by the app's resumable downloader.
+    ggufFiles: [
+      { name: 'lm_flow.int8.onnx', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/lm_flow.int8.onnx' },
+      { name: 'lm_main.int8.onnx', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/lm_main.int8.onnx' },
+      { name: 'encoder.onnx', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/encoder.onnx' },
+      { name: 'decoder.int8.onnx', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/decoder.int8.onnx' },
+      { name: 'text_conditioner.onnx', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/text_conditioner.onnx' },
+      { name: 'vocab.json', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/vocab.json' },
+      { name: 'token_scores.json', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/token_scores.json' },
+      { name: 'voices/bria.wav', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/test_wavs/bria.wav' },
+      { name: 'voices/loona.wav', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/test_wavs/loona.wav' },
+    ],
+    type: 'pocket',
+    size: 9_962_530 + 76_341_079 + 72_713_165 + 22_693_618 + 16_388_343 + 69_478 + 123_616 + 2_152_986 + 50_478,
+    languages: ['English'],
   },
   {
     id: 'qwen3-tts-06b',
@@ -297,6 +323,13 @@ class ModelsService {
       const fileName = fileInfo.name;
       const fileUrl = fileInfo.url;
       const filePath = `${modelDir}/${fileName}`;
+
+      // Catalog entries may nest files in subdirectories (e.g. voices/*.wav).
+      const parentDir = filePath.substring(0, filePath.lastIndexOf('/'));
+      const parentInfo = await FileSystem.getInfoAsync(parentDir);
+      if (!parentInfo.exists) {
+        await FileSystem.makeDirectoryAsync(parentDir, { intermediates: true });
+      }
 
       try {
         // Base progress from already downloaded files

@@ -56,7 +56,11 @@ class ExpoQwen3TtsModule : Module() {
 
         val plainPath = if (sourceUri.startsWith("file://")) sourceUri.substring(7) else sourceUri
         val existing = java.io.File(plainPath)
-        if (existing.parentFile == cacheDir && existing.name.startsWith("ref_") && existing.exists()) {
+        // Refs we wrote ourselves pass straight through: either fresh ones in the
+        // cache (ref_*.wav) or persisted profile references under profiles/.
+        val inCacheRef = existing.parentFile == cacheDir && existing.name.startsWith("ref_")
+        val inProfileDir = existing.parentFile?.name == "profiles" && existing.exists()
+        if ((inCacheRef || inProfileDir) && existing.exists()) {
             return existing
         }
 
@@ -80,28 +84,33 @@ class ExpoQwen3TtsModule : Module() {
             val dir = java.io.File(actualDir)
             if (!dir.exists() || !dir.isDirectory) throw IllegalArgumentException("modelDir must be a directory (got $actualDir)")
 
-            val files = dir.listFiles { _, name -> name.endsWith(".gguf") }
-            if (files == null || files.isEmpty()) throw IllegalArgumentException("No .gguf files found in $actualDir")
-
+            // Pocket TTS resolves its own filenames inside the directory (the
+            // JNI layer globs the ONNX files), so no file sniffing here.
             var modelPath = ""
             var codecPath = ""
-
-            for (file in files) {
-                val lower = file.name.lowercase()
-                if (lower.contains("tokenizer") || lower.contains("codec")) {
-                    codecPath = file.absolutePath
-                } else {
-                    modelPath = file.absolutePath
+            if (engine != "pocket") {
+                val files = dir.listFiles { _, name -> name.endsWith(".gguf") }
+                if (files == null || files.isEmpty()) {
+                    throw IllegalArgumentException("No .gguf files found in $actualDir")
                 }
-            }
 
-            if (modelPath.isEmpty() && files.isNotEmpty()) modelPath = files[0].absolutePath
-            if (codecPath.isEmpty() && files.size >= 2) codecPath = files[1].absolutePath
+                for (file in files) {
+                    val lower = file.name.lowercase()
+                    if (lower.contains("tokenizer") || lower.contains("codec")) {
+                        codecPath = file.absolutePath
+                    } else {
+                        modelPath = file.absolutePath
+                    }
+                }
 
-            if (engine != "qwen3" && codecPath.isEmpty()) {
-                throw IllegalArgumentException(
-                    "OmniVoice needs both a base and a tokenizer .gguf in $actualDir " +
-                    "(found ${files.size}: ${files.joinToString { it.name }})")
+                if (modelPath.isEmpty() && files.isNotEmpty()) modelPath = files[0].absolutePath
+                if (codecPath.isEmpty() && files.size >= 2) codecPath = files[1].absolutePath
+
+                if (engine != "qwen3" && codecPath.isEmpty()) {
+                    throw IllegalArgumentException(
+                        "OmniVoice needs both a base and a tokenizer .gguf in $actualDir " +
+                        "(found ${files.size}: ${files.joinToString { it.name }})")
+                }
             }
 
             if (!nativeInitModel(actualDir, modelPath, codecPath, engine)) {

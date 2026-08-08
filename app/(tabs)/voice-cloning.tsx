@@ -1,97 +1,35 @@
-import { ScrollView, Text, View, Pressable, Alert, ActivityIndicator, TextInput, FlatList, Platform } from 'react-native';
+import { ScrollView, Text, View, Pressable, Alert, TextInput, FlatList } from 'react-native';
 import { ScreenContainer } from '@/components/screen-container';
 import { useTTS } from '@/lib/context/tts-context';
+import { useProfiles } from '@/lib/context/profiles-context';
 import { useColors } from '@/hooks/use-colors';
 import { GenerationQueue } from '@/components/generation-queue';
+import { ProfilePicker } from '@/components/profile-picker';
+import { ReferenceSourcePicker } from '@/components/reference-source-picker';
+import { AdvancedParamsEditor } from '@/components/advanced-params-editor';
+import { useReferencePicker } from '@/hooks/use-reference-picker';
 import * as Haptics from 'expo-haptics';
-import { useState, useRef } from 'react';
-import * as DocumentPicker from 'expo-document-picker';
-import { Audio } from 'expo-av';
+import { useState } from 'react';
 import { getSupportedLanguages } from '@/lib/services/local-tts';
-import { prepareReference, type Quality } from '@/modules/expo-qwen3-tts';
-
-
-
-interface PickedFile {
-  name: string;
-  uri: string;
-  playUri: string;
-  size: number;
-  mimeType: string;
-}
-
-function ReferenceAudioPlayer({ uri, label }: { uri: string; label: string }) {
-  const colors = useColors();
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const soundRef = useRef<Audio.Sound | null>(null);
-
-  const handlePlay = async () => {
-    if (isPlaying && soundRef.current) {
-      await soundRef.current.stopAsync();
-      await soundRef.current.unloadAsync();
-      soundRef.current = null;
-      setIsPlaying(false);
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const { sound } = await Audio.Sound.createAsync(
-        { uri },
-        { shouldPlay: true },
-        (status) => {
-          if (status.isLoaded && status.didJustFinish) {
-            setIsPlaying(false);
-          }
-        }
-      );
-      soundRef.current = sound;
-      setIsPlaying(true);
-    } catch (e) {
-      console.error('Failed to play reference audio:', e);
-      Alert.alert('Erreur', 'Impossible de lire cet échantillon audio');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <Pressable
-      onPress={handlePlay}
-      disabled={isLoading}
-      style={({ pressed }) => [
-        {
-          backgroundColor: isLoading ? colors.muted : isPlaying ? colors.error : colors.primary,
-          opacity: pressed ? 0.9 : 1,
-        },
-      ]}
-      className="rounded-xl p-3 flex-row items-center justify-center mt-3"
-    >
-      {isLoading ? (
-        <ActivityIndicator color="white" size="small" style={{ marginRight: 8 }} />
-      ) : (
-        <Text className="text-white font-semibold text-sm">
-          {isPlaying ? '⏹ Arrêter la lecture' : '▶ Écouter l\'échantillon'}
-        </Text>
-      )}
-    </Pressable>
-  );
-}
+import type { Quality } from '@/modules/expo-qwen3-tts';
+import type { VoiceProfile } from '@/lib/services/profiles';
+import { DEFAULT_SPEECH_PARAMS, type SpeechParams } from '@/lib/services/audio-pipeline';
 
 export default function VoiceCloningScreen() {
   const colors = useColors();
   const { installedModels, getModelPath, ttsEngine, enqueueGeneration, jobs } = useTTS();
+  const { saveProfile } = useProfiles();
 
-  const [selectedFile, setSelectedFile] = useState<PickedFile | null>(null);
-  const [isReady, setIsReady] = useState(false);
+  const picker = useReferencePicker();
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState('fr');
   const [cloneText, setCloneText] = useState('');
-  const [isConverting, setIsConverting] = useState(false);
-  const [refDuration, setRefDuration] = useState<number | null>(null);
   const [selectedModelId, setSelectedModelId] = useState<string>('');
   const [refText, setRefText] = useState('');
   const [quality, setQuality] = useState<Quality>('best');
+  const [params, setParams] = useState<SpeechParams>({ ...DEFAULT_SPEECH_PARAMS });
+  const [saveName, setSaveName] = useState('');
+  const [showSave, setShowSave] = useState(false);
 
   const runningCount = jobs.filter(
     (job) => job.kind === 'clone' && (job.status === 'queued' || job.status === 'running')
@@ -100,104 +38,43 @@ export default function VoiceCloningScreen() {
   const activeModel =
     installedModels.find((m) => m.id === selectedModelId) ?? installedModels[0];
   // Qwen3-TTS reads the voice off a speaker encoder and ignores any transcript.
-  // OmniVoice can use one for extra context but clones fine without it, so the
-  // field is offered rather than required.
+  // OmniVoice can use one for extra context but clones fine without it.
+  // Pocket TTS does not need a transcript at all.
   const usesRefText = activeModel?.type === 'omnivoice';
   const LANGUAGES = getSupportedLanguages(activeModel?.type);
-  // Switching to an engine with a narrower language set must not leave a
-  // stale selection the engine would silently reinterpret as English.
   const effectiveLanguage = LANGUAGES.some((l) => l.id === selectedLanguage)
     ? selectedLanguage
     : LANGUAGES[0]?.id ?? 'en';
 
   const hasModels = installedModels.length > 0;
 
-  const handlePickFile = async () => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['audio/*', 'video/*'],
-        copyToCacheDirectory: true,
-      });
-
-      if (result.canceled || !result.assets || result.assets.length === 0) return;
-
-      const asset = result.assets[0];
-      let playUri = asset.uri;
-
-      if (Platform.OS === 'web') {
-        const rawFile = (asset as any).file;
-        if (rawFile instanceof File || rawFile instanceof Blob) {
-          playUri = URL.createObjectURL(rawFile);
-        } else if (asset.uri && !asset.uri.startsWith('blob:') && !asset.uri.startsWith('data:')) {
-          try {
-            const resp = await fetch(asset.uri);
-            const blob = await resp.blob();
-            playUri = URL.createObjectURL(blob);
-          } catch (e) {
-            console.warn('Could not create Blob URL from asset.uri:', e);
-          }
-        }
-      }
-
-      if (selectedFile?.playUri && selectedFile.playUri.startsWith('blob:')) {
-        try {
-          URL.revokeObjectURL(selectedFile.playUri);
-        } catch (_) {}
-      }
-
-      setSelectedFile({
-        name: asset.name,
-        uri: asset.uri,
-        playUri: playUri || asset.uri,
-        size: asset.size ?? 0,
-        mimeType: asset.mimeType ?? 'audio/wav',
-      });
-      setRefDuration(null);
-
-      if (Platform.OS === 'web') {
-        setIsReady(true);
-        return;
-      }
-
-      // Decode mp3/m4a/mp4/... down to the 24 kHz mono WAV the engines need.
-      // Done here rather than at synthesis time so an unusable clip is caught
-      // while the user is still looking at the picker.
-      setIsReady(false);
-      setIsConverting(true);
-      try {
-        const prepared = await prepareReference(asset.uri);
-        setSelectedFile((prev) => (prev ? { ...prev, uri: prepared.uri } : prev));
-        setRefDuration(prepared.duration);
-        setIsReady(true);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } catch (error: any) {
-        console.error('Reference conversion failed:', error);
-        Alert.alert('Extrait inutilisable', error?.message || 'Impossible de lire cet extrait audio.');
-        setSelectedFile(null);
-      } finally {
-        setIsConverting(false);
-      }
-    } catch (error) {
-      console.error('Error picking file:', error);
-      Alert.alert('Erreur', 'Impossible de sélectionner le fichier');
+  const handleSelectProfile = (profile: VoiceProfile | null) => {
+    setSelectedProfileId(profile?.id ?? null);
+    if (!profile) {
+      // Keep the user's own picked reference; just reset model/lang/params.
+      setSelectedModelId('');
+      setSelectedLanguage('fr');
+      setParams({ ...DEFAULT_SPEECH_PARAMS });
+      return;
     }
-  };
-
-  const handleRemoveFile = () => {
-    if (selectedFile?.playUri && selectedFile.playUri.startsWith('blob:')) {
-      try {
-        URL.revokeObjectURL(selectedFile.playUri);
-      } catch (_) {}
+    setSelectedModelId(profile.modelId);
+    setSelectedLanguage(profile.language);
+    setParams({ ...profile.params });
+    if (profile.reference) {
+      picker.setReference({
+        name: profile.reference.sourceName,
+        wavUri: profile.reference.wavUri,
+        playUri: profile.reference.wavUri,
+        duration: profile.reference.duration,
+        sourceType: profile.reference.sourceType,
+        size: 0,
+      });
     }
-    setSelectedFile(null);
-    setRefDuration(null);
-    setIsReady(false);
   };
 
   const handleCloneVoice = async () => {
-    if (!selectedFile || !isReady) {
-      Alert.alert('Erreur', 'Veuillez charger un fichier audio');
+    if (!picker.reference || !picker.isReady) {
+      Alert.alert('Erreur', 'Veuillez charger ou enregistrer un échantillon vocal');
       return;
     }
     if (!cloneText.trim()) {
@@ -205,20 +82,20 @@ export default function VoiceCloningScreen() {
       return;
     }
 
-    const model = installedModels.find((m) => m.id === selectedModelId) ?? installedModels[0];
+    const model = activeModel;
     if (!model) {
       Alert.alert('Erreur', 'Aucun modèle installé');
       return;
     }
 
     const spoken = cloneText.trim();
-    const referenceUri = selectedFile.uri;
+    const referenceUri = picker.reference.wavUri;
     const referenceText = refText.trim();
     const language = effectiveLanguage;
     const chosenQuality = quality;
+    const chosenParams = params;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    // Queued rather than awaited so several clips can be lined up in a row.
     enqueueGeneration('clone', spoken, async () => {
       const modelDir = await getModelPath(model.id);
       if (!modelDir) throw new Error('Modèle introuvable');
@@ -231,18 +108,53 @@ export default function VoiceCloningScreen() {
         engine: model.type,
         language,
         quality: chosenQuality,
+        params: chosenParams,
       });
     });
 
     setCloneText('');
   };
 
-  const formatBytes = (bytes: number) => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+  const handleSaveProfile = async () => {
+    const model = activeModel;
+    if (!model) {
+      Alert.alert('Erreur', 'Aucun modèle installé');
+      return;
+    }
+    const name = saveName.trim();
+    if (!name) {
+      Alert.alert('Erreur', 'Donnez un nom au profil');
+      return;
+    }
+    if (!picker.reference) {
+      Alert.alert('Erreur', 'Choisissez d\u2019abord un échantillon vocal');
+      return;
+    }
+
+    const base = selectedProfileId ? { id: selectedProfileId } : {};
+    await saveProfile(
+      {
+        ...base,
+        name,
+        modelId: model.id,
+        engine: model.type,
+        language: effectiveLanguage,
+        params,
+        reference: {
+          sourceType: picker.reference.sourceType,
+          sourceName: picker.reference.name,
+          wavUri: picker.reference.wavUri,
+          duration: picker.reference.duration ?? 0,
+        },
+      } as VoiceProfile,
+      // saveProfile skips the copy when the source is already the profile's
+      // own persisted file.
+      picker.reference.wavUri
+    );
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setShowSave(false);
+    setSaveName('');
+    Alert.alert('Profil enregistré', `« ${name} » est disponible dans l\u2019onglet Profils.`);
   };
 
   return (
@@ -257,7 +169,6 @@ export default function VoiceCloningScreen() {
           </Text>
         </View>
 
-        {/* No model warning */}
         {!hasModels && (
           <View className="px-6 mb-6">
             <View className="bg-warning/10 rounded-xl p-4 border border-warning/30">
@@ -269,87 +180,34 @@ export default function VoiceCloningScreen() {
           </View>
         )}
 
-        {/* Step 1: Upload Audio */}
+        {/* Profile quick-pick */}
+        <View className="px-6 mb-6">
+          <Text className="text-sm font-semibold text-foreground mb-3">Profil de voix</Text>
+          <ProfilePicker selectedId={selectedProfileId} onSelect={handleSelectProfile} />
+        </View>
+
+        {/* Step 1: Reference */}
         <View className="px-6 mb-6">
           <Text className="text-sm font-semibold text-foreground mb-3">Étape 1: Audio de référence</Text>
           <Text className="text-xs text-muted mb-3">
-            Fournissez un échantillon audio de 3 à 10 secondes pour cloner une voix, ou importez une vidéo (MP4, MKV, AVI...) dont l&apos;audio sera extrait automatiquement.
+            Échantillon de 3 à 10 s pour cloner la voix — fichier audio, enregistrement direct,
+            ou vidéo dont l&apos;audio est extrait automatiquement.
           </Text>
-
-          {selectedFile ? (
-            <View className="bg-surface border border-primary/40 rounded-2xl p-4">
-              <View className="flex-row items-center justify-between mb-3">
-                <View className="flex-row items-center flex-1 mr-2">
-                  <View className="w-8 h-8 rounded-full bg-success/20 items-center justify-center mr-3">
-                    {isConverting ? (
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                      <Text className="text-success font-bold">✓</Text>
-                    )}
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-base font-semibold text-foreground" numberOfLines={1}>
-                      {selectedFile.name}
-                    </Text>
-                    <Text className="text-xs text-muted">
-                      {isConverting
-                        ? 'Extraction de la voix…'
-                        : refDuration != null
-                          ? `Prêt · ${refDuration.toFixed(1)} s de voix`
-                          : `Échantillon vocal chargé · ${formatBytes(selectedFile.size)}`}
-                    </Text>
-                  </View>
-                </View>
-                <Pressable
-                  onPress={handleRemoveFile}
-                  className="bg-error/10 border border-error/30 rounded-lg px-3 py-1.5"
-                >
-                  <Text className="text-error text-xs font-semibold">Retirer</Text>
-                </Pressable>
-              </View>
-
-              {/* Audio preview player */}
-              {Platform.OS === 'web' ? (
-                <View className="mt-2 rounded-xl overflow-hidden bg-background/50 p-2">
-                  <audio
-                    controls
-                    src={selectedFile.playUri}
-                    style={{ width: '100%', height: '40px' }}
-                    onError={(e) => {
-                      console.error('Audio element error:', e);
-                    }}
-                  />
-                </View>
-              ) : (
-                <ReferenceAudioPlayer uri={selectedFile.playUri} label={selectedFile.name} />
-              )}
-            </View>
-          ) : (
-            <Pressable
-              onPress={handlePickFile}
-              disabled={!hasModels}
-              style={({ pressed }) => [
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: colors.primary,
-                  opacity: pressed ? 0.8 : !hasModels ? 0.5 : 1,
-                },
-              ]}
-              className="border-2 border-dashed rounded-2xl p-8 items-center justify-center"
-            >
-              <Text className="text-4xl mb-3">🎤</Text>
-              <Text className="text-lg font-semibold text-foreground text-center">
-                Charger un fichier audio ou vidéo
-              </Text>
-              <Text className="text-sm text-muted text-center mt-2">
-                Format MP3, WAV, MP4, MKV, AVI (3-10s recommandé)
-              </Text>
-            </Pressable>
-          )}
+          <ReferenceSourcePicker
+            reference={picker.reference}
+            isReady={picker.isReady}
+            isConverting={picker.isConverting}
+            isRecording={picker.isRecording}
+            onPick={picker.pickFile}
+            onRecord={picker.startRecording}
+            onStopRecord={picker.stopRecording}
+            onRemove={picker.removeReference}
+            disabled={!hasModels}
+          />
         </View>
 
         {/* Step 2: Language */}
-        {isReady && (
+        {picker.isReady && (
           <View className="px-6 mb-6">
             <Text className="text-sm font-semibold text-foreground mb-3">Étape 2: Langue</Text>
             <FlatList
@@ -360,10 +218,7 @@ export default function VoiceCloningScreen() {
               columnWrapperStyle={{ gap: 8, marginBottom: 8 }}
               renderItem={({ item }) => (
                 <Pressable
-                  onPress={() => {
-                    setSelectedLanguage(item.id);
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
+                  onPress={() => { setSelectedLanguage(item.id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
                   style={({ pressed }) => [
                     {
                       backgroundColor: effectiveLanguage === item.id ? colors.primary : colors.surface,
@@ -384,7 +239,7 @@ export default function VoiceCloningScreen() {
         )}
 
         {/* Step 3: Text */}
-        {isReady && (
+        {picker.isReady && (
           <View className="px-6 mb-6">
             <Text className="text-sm font-semibold text-foreground mb-3">Étape 3: Texte à synthétiser</Text>
             <TextInput
@@ -400,15 +255,14 @@ export default function VoiceCloningScreen() {
           </View>
         )}
 
-        {/* Reference transcript — OmniVoice refuses to clone without it */}
-        {isReady && usesRefText && (
+        {/* Reference transcript — OmniVoice only */}
+        {picker.isReady && usesRefText && (
           <View className="px-6 mb-6">
             <Text className="text-sm font-semibold text-foreground mb-1">
               Que dit l&apos;extrait ? <Text className="text-muted font-normal">(facultatif)</Text>
             </Text>
             <Text className="text-xs text-muted mb-3">
-              Le clonage marche sans, mais recopier ce qui est prononcé donne au
-              moteur un repère de plus et améliore la ressemblance.
+              Recopier ce qui est prononcé donne au moteur un repère de plus et améliore la ressemblance.
             </Text>
             <TextInput
               value={refText}
@@ -422,8 +276,8 @@ export default function VoiceCloningScreen() {
           </View>
         )}
 
-        {/* Quality — OmniVoice only; Qwen3 has no comparable step knob */}
-        {isReady && usesRefText && (
+        {/* Quality — OmniVoice only */}
+        {picker.isReady && usesRefText && (
           <View className="px-6 mb-6">
             <Text className="text-sm font-semibold text-foreground mb-3">Qualité</Text>
             <View className="flex-row gap-2">
@@ -436,30 +290,16 @@ export default function VoiceCloningScreen() {
                 return (
                   <Pressable
                     key={option.id}
-                    onPress={() => {
-                      setQuality(option.id);
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    }}
+                    onPress={() => { setQuality(option.id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
                     style={({ pressed }) => [
-                      {
-                        backgroundColor: active ? colors.primary : colors.surface,
-                        opacity: pressed ? 0.8 : 1,
-                      },
+                      { backgroundColor: active ? colors.primary : colors.surface, opacity: pressed ? 0.8 : 1 },
                     ]}
                     className="flex-1 rounded-lg p-3 border border-border"
                   >
-                    <Text
-                      className={active
-                        ? 'text-white font-semibold text-center text-xs'
-                        : 'text-foreground font-semibold text-center text-xs'}
-                    >
+                    <Text className={active ? 'text-white font-semibold text-center text-xs' : 'text-foreground font-semibold text-center text-xs'}>
                       {option.label}
                     </Text>
-                    <Text
-                      className={active
-                        ? 'text-white/70 text-center text-xs mt-1'
-                        : 'text-muted text-center text-xs mt-1'}
-                    >
+                    <Text className={active ? 'text-white/70 text-center text-xs mt-1' : 'text-muted text-center text-xs mt-1'}>
                       {option.hint}
                     </Text>
                   </Pressable>
@@ -467,40 +307,42 @@ export default function VoiceCloningScreen() {
               })}
             </View>
             <Text className="text-xs text-muted mt-2">
-              La génération est lourde : comptez plusieurs dizaines de secondes par
-              phrase. Les modes accélérés sautent des étapes de décodage et la voix
-              peut devenir inintelligible — Qwen3-TTS est plus rapide sans ce compromis.
+              La génération est lourde : comptez plusieurs dizaines de secondes par phrase.
+              Pocket TTS est beaucoup plus rapide.
             </Text>
           </View>
         )}
 
-        {/* Model picker — matters once both OmniVoice and Qwen3 are installed */}
-        {isReady && installedModels.length > 1 && (
+        {/* Advanced speech parameters */}
+        {picker.isReady && (
+          <View className="px-6 mb-6">
+            <Text className="text-sm font-semibold text-foreground mb-1">Paramètres avancés</Text>
+            <Text className="text-xs text-muted mb-3">
+              Pauses après chaque ponctuation, vitesse et volume — appliqués à la voix clonée.
+            </Text>
+            <View className="bg-surface border border-border rounded-2xl p-4">
+              <AdvancedParamsEditor params={params} onChange={setParams} />
+            </View>
+          </View>
+        )}
+
+        {/* Model picker */}
+        {picker.isReady && installedModels.length > 1 && (
           <View className="px-6 mb-6">
             <Text className="text-sm font-semibold text-foreground mb-3">Modèle</Text>
             <View className="flex-row gap-2 flex-wrap">
               {installedModels.map((model) => {
-                const active = (selectedModelId || installedModels[0]?.id) === model.id;
+                const active = activeModel?.id === model.id;
                 return (
                   <Pressable
                     key={model.id}
-                    onPress={() => {
-                      setSelectedModelId(model.id);
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    }}
+                    onPress={() => { setSelectedModelId(model.id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
                     style={({ pressed }) => [
-                      {
-                        backgroundColor: active ? colors.primary : colors.surface,
-                        opacity: pressed ? 0.8 : 1,
-                      },
+                      { backgroundColor: active ? colors.primary : colors.surface, opacity: pressed ? 0.8 : 1 },
                     ]}
                     className="flex-1 rounded-lg p-3 border border-border"
                   >
-                    <Text
-                      className={active
-                        ? 'text-white font-semibold text-center'
-                        : 'text-foreground font-semibold text-center'}
-                    >
+                    <Text className={active ? 'text-white font-semibold text-center' : 'text-foreground font-semibold text-center'}>
                       {model.name}
                     </Text>
                   </Pressable>
@@ -511,7 +353,7 @@ export default function VoiceCloningScreen() {
         )}
 
         {/* Clone Button */}
-        {isReady && (
+        {picker.isReady && (
           <View className="px-6 mb-6">
             <Pressable
               onPress={handleCloneVoice}
@@ -533,6 +375,46 @@ export default function VoiceCloningScreen() {
               <Text className="text-xs text-muted text-center mt-2">
                 {runningCount} clonage{runningCount > 1 ? 's' : ''} en cours — vous pouvez en lancer d&apos;autres
               </Text>
+            )}
+          </View>
+        )}
+
+        {/* Save as profile */}
+        {picker.isReady && (
+          <View className="px-6 mb-6">
+            {!showSave ? (
+              <Pressable
+                onPress={() => setShowSave(true)}
+                className="border border-primary/40 rounded-xl p-3 items-center"
+              >
+                <Text className="text-primary font-semibold">💾 Enregistrer ce profil de voix</Text>
+              </Pressable>
+            ) : (
+              <View className="bg-surface border border-border rounded-xl p-4">
+                <Text className="text-sm font-semibold text-foreground mb-2">Nom du profil</Text>
+                <TextInput
+                  value={saveName}
+                  onChangeText={setSaveName}
+                  placeholder="Ex : Voix de Thomas"
+                  placeholderTextColor={colors.muted}
+                  className="bg-background border border-border rounded-lg p-3 text-foreground mb-3"
+                />
+                <View className="flex-row gap-2">
+                  <Pressable onPress={() => setShowSave(false)} className="flex-1 bg-border/40 rounded-lg p-3">
+                    <Text className="text-center text-sm text-foreground font-semibold">Annuler</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={handleSaveProfile}
+                    disabled={!saveName.trim()}
+                    style={({ pressed }) => [
+                      { backgroundColor: !saveName.trim() ? colors.muted : colors.primary, opacity: pressed ? 0.9 : 1 },
+                    ]}
+                    className="flex-1 rounded-lg p-3"
+                  >
+                    <Text className="text-center text-sm text-white font-semibold">Enregistrer</Text>
+                  </Pressable>
+                </View>
+              </View>
             )}
           </View>
         )}

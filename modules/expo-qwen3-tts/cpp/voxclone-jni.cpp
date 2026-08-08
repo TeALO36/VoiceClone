@@ -12,6 +12,7 @@
 
 #include <jni.h>
 #include <android/log.h>
+#include <dlfcn.h>
 
 #include <cstdio>
 #include <cstdint>
@@ -21,6 +22,7 @@
 
 #include "omnivoice.h"
 #include "qwen3tts_c_api.h"
+#include "sherpa-onnx-c-api.h"
 
 #define LOG_TAG "VoxCloneJNI"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
@@ -28,17 +30,71 @@
 
 namespace {
 
-// Both engines live in this binary and share one ggml build. Exactly one is
+// The engines live in this binary and share one ggml build. Exactly one is
 // loaded at a time; the JS layer says which, because only it knows whether the
-// downloaded GGUF is an OmniVoice or a Qwen3-TTS checkpoint. Guessing from the
-// file is what produced "ov_init: pipeline_tts_load failed" on a Qwen3 model.
-enum Engine { ENGINE_NONE = 0, ENGINE_OMNIVOICE = 1, ENGINE_QWEN3 = 2 };
+// downloaded files are an OmniVoice, a Qwen3-TTS or a Pocket TTS model.
+// Guessing from the files is what produced "ov_init: pipeline_tts_load failed"
+// on a Qwen3 model.
+enum Engine { ENGINE_NONE = 0, ENGINE_OMNIVOICE = 1, ENGINE_QWEN3 = 2, ENGINE_POCKET = 3 };
 
 ov_context *    g_ov     = nullptr;
 Qwen3Tts *      g_q3     = nullptr;
 Qwen3TtsParams  g_q3_params;
 Engine          g_engine = ENGINE_NONE;
 std::string     g_last_error;
+
+// ── Pocket TTS (sherpa-onnx) ──────────────────────────────────────────────
+// Pocket TTS runs through sherpa-onnx's C API, which ships as a prebuilt
+// shared library (libsherpa-onnx-c-api.so + libonnxruntime.so, see
+// scripts/fetch-sherpa-onnx-android.sh). It is dlopen'd at runtime rather than
+// linked at build time so the CMake build stays untouched: the three ggml
+// engines and Pocket TTS are otherwise independent runtimes with no shared
+// symbols. dlopen failure degrades to a clear error instead of a load failure
+// of the whole module.
+struct PocketApi {
+    void * handle = nullptr;
+    decltype(&SherpaOnnxCreateOfflineTts) create = nullptr;
+    decltype(&SherpaOnnxDestroyOfflineTts) destroy = nullptr;
+    decltype(&SherpaOnnxOfflineTtsGenerateWithConfig) generate = nullptr;
+    decltype(&SherpaOnnxDestroyOfflineTtsGeneratedAudio) free_audio = nullptr;
+    decltype(&SherpaOnnxWriteWave) write_wave = nullptr;
+    decltype(&SherpaOnnxOfflineTtsSampleRate) sample_rate = nullptr;
+
+    bool loaded() const { return handle && create && destroy && generate && free_audio && write_wave && sample_rate; }
+};
+
+PocketApi g_pocket_api;
+const SherpaOnnxOfflineTts * g_pocket = nullptr;
+std::string g_last_model_dir;
+
+bool load_pocket_api() {
+    if (g_pocket_api.loaded()) return true;
+    if (g_pocket_api.handle) return false;   // tried and failed before
+
+    const char * lib = "libsherpa-onnx-c-api.so";
+    void * handle = dlopen(lib, RTLD_NOW | RTLD_GLOBAL);
+    if (!handle) {
+        LOGE("dlopen(%s) failed: %s", lib, dlerror());
+        g_last_error = "Bibliothèque Pocket TTS introuvable. Lancez scripts/fetch-sherpa-onnx-android.sh puis reconstruisez.";
+        return false;
+    }
+
+    g_pocket_api.handle = handle;
+    g_pocket_api.create      = (decltype(&SherpaOnnxCreateOfflineTts))dlsym(handle, "SherpaOnnxCreateOfflineTts");
+    g_pocket_api.destroy     = (decltype(&SherpaOnnxDestroyOfflineTts))dlsym(handle, "SherpaOnnxDestroyOfflineTts");
+    g_pocket_api.generate    = (decltype(&SherpaOnnxOfflineTtsGenerateWithConfig))dlsym(handle, "SherpaOnnxOfflineTtsGenerateWithConfig");
+    g_pocket_api.free_audio  = (decltype(&SherpaOnnxDestroyOfflineTtsGeneratedAudio))dlsym(handle, "SherpaOnnxDestroyOfflineTtsGeneratedAudio");
+    g_pocket_api.write_wave  = (decltype(&SherpaOnnxWriteWave))dlsym(handle, "SherpaOnnxWriteWave");
+    g_pocket_api.sample_rate = (decltype(&SherpaOnnxOfflineTtsSampleRate))dlsym(handle, "SherpaOnnxOfflineTtsSampleRate");
+
+    if (!g_pocket_api.loaded()) {
+        LOGE("Pocket TTS: missing symbols in %s", lib);
+        g_last_error = "Bibliothèque Pocket TTS incomplète (symboles manquants).";
+        return false;
+    }
+    LOGD("Pocket TTS C API loaded");
+    return true;
+}
 
 void set_error(const char * what) {
     const char * detail = (g_engine == ENGINE_QWEN3 && g_q3)
@@ -90,6 +146,7 @@ int32_t token_budget_for(const std::string & text) {
 void release_all() {
     if (g_ov) { ov_free(g_ov); g_ov = nullptr; }
     if (g_q3) { qwen3_tts_destroy(g_q3); g_q3 = nullptr; }
+    if (g_pocket && g_pocket_api.destroy) { g_pocket_api.destroy(g_pocket); g_pocket = nullptr; }
     g_engine = ENGINE_NONE;
 }
 
@@ -259,6 +316,70 @@ jint run_synthesis(JNIEnv * env,
         return (jint)n;
     }
 
+    // ── Pocket TTS path (sherpa-onnx) ──
+    // Pocket TTS is zero-shot: it always speaks with a reference voice, so the
+    // JS layer supplies one (a user clip, or the bundled default voice for
+    // plain TTS). If it somehow arrives empty, fall back to the bundled voice.
+    if (g_engine == ENGINE_POCKET) {
+        if (!g_pocket_api.loaded() || !g_pocket) {
+            g_last_error = "Pocket TTS non chargé";
+            LOGE("%s", g_last_error.c_str());
+            return -1;
+        }
+
+        std::string ref_path = jstr(env, jRefPath);
+        if (ref_path.empty()) {
+            const std::string model_dir = g_last_model_dir;
+            ref_path = model_dir + "/voices/bria.wav";
+            LOGD("Pocket: no reference, using bundled default voice %s", ref_path.c_str());
+        }
+
+        std::vector<float> ref_audio;
+        int ref_sample_rate = 24000;
+        if (!ref_path.empty()) {
+            if (!read_wav(ref_path, ref_audio, ref_sample_rate)) {
+                g_last_error = "Impossible de lire l'extrait de référence : " + ref_path;
+                LOGE("%s", g_last_error.c_str());
+                return -1;
+            }
+            if (ref_sample_rate != 24000) {
+                LOGD("Pocket: reference sample rate %d (expecting 24000)", ref_sample_rate);
+            }
+        }
+
+        SherpaOnnxGenerationConfig cfg;
+        std::memset(&cfg, 0, sizeof(cfg));
+        cfg.silence_scale       = 0.2f;
+        cfg.speed               = 1.0f;
+        cfg.reference_audio     = ref_audio.empty() ? nullptr : ref_audio.data();
+        cfg.reference_audio_len = (int32_t)ref_audio.size();
+        cfg.reference_sample_rate = ref_audio.empty() ? 0 : ref_sample_rate;
+        cfg.reference_text      = ref_text.empty() ? nullptr : ref_text.c_str();
+        if (jSteps > 0) cfg.num_steps = (int32_t)jSteps;   // JS maps quality -> 1/2/4
+
+        const SherpaOnnxGeneratedAudio * audio =
+            g_pocket_api.generate(g_pocket, text.c_str(), &cfg, nullptr, nullptr);
+        if (!audio || audio->n <= 0) {
+            g_last_error = "Pocket TTS generation failed";
+            if (audio) g_pocket_api.free_audio(audio);
+            LOGE("%s", g_last_error.c_str());
+            return -1;
+        }
+
+        const bool ok = g_pocket_api.write_wave(audio->samples, audio->n,
+                                                audio->sample_rate > 0 ? audio->sample_rate : 24000,
+                                                out_path.c_str());
+        const int n = audio->n;
+        g_pocket_api.free_audio(audio);
+
+        if (!ok) {
+            g_last_error = "Could not write output WAV";
+            return -1;
+        }
+        LOGD("Pocket TTS wrote %d samples to %s", n, out_path.c_str());
+        return (jint)n;
+    }
+
     // ── OmniVoice path ──
     ov_tts_params p;
     ov_tts_default_params(&p);
@@ -328,6 +449,73 @@ Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeInitModel(
     const std::string codec_path = jstr(env, jCodecPath);
     const std::string engine     = jstr(env, jEngine);
 
+    g_last_model_dir = model_dir;
+
+    if (engine == "pocket") {
+        if (!load_pocket_api()) {
+            // load_pocket_api already filled g_last_error with the precise cause.
+            LOGE("%s", g_last_error.c_str());
+            return JNI_FALSE;
+        }
+
+        // Resolve the exact filenames sherpa-onnx expects inside the model dir.
+        auto file_path = [&](const char * name) -> std::string {
+            return model_dir + "/" + name;
+        };
+        auto exists = [&](const std::string & p) -> bool {
+            FILE * f = std::fopen(p.c_str(), "rb");
+            if (f) { std::fclose(f); return true; }
+            return false;
+        };
+
+        SherpaOnnxOfflineTtsConfig config;
+        std::memset(&config, 0, sizeof(config));
+        config.model.num_threads = 2;
+        config.model.debug = 0;
+        config.model.provider = "cpu";
+        config.model.pocket.lm_flow            = strdup(file_path("lm_flow.int8.onnx").c_str());
+        config.model.pocket.lm_main            = strdup(file_path("lm_main.int8.onnx").c_str());
+        config.model.pocket.encoder            = strdup(file_path("encoder.onnx").c_str());
+        config.model.pocket.decoder            = strdup(file_path("decoder.int8.onnx").c_str());
+        config.model.pocket.text_conditioner   = strdup(file_path("text_conditioner.onnx").c_str());
+        config.model.pocket.vocab_json         = strdup(file_path("vocab.json").c_str());
+        config.model.pocket.token_scores_json  = strdup(file_path("token_scores.json").c_str());
+        config.max_num_sentences = 1;
+        config.silence_scale = 0.2f;
+
+        bool missing = false;
+        const char * required[] = {
+            config.model.pocket.lm_flow, config.model.pocket.lm_main,
+            config.model.pocket.encoder, config.model.pocket.decoder,
+            config.model.pocket.text_conditioner, config.model.pocket.vocab_json,
+            config.model.pocket.token_scores_json
+        };
+        for (const char * p : required) {
+            if (!exists(p)) { missing = true; LOGD("Pocket: missing file %s", p); }
+        }
+
+        if (missing) {
+            g_last_error = "Modèle Pocket TTS incomplet (fichiers .onnx/.json manquants dans " + model_dir + ")";
+            LOGE("%s", g_last_error.c_str());
+            for (const char * p : required) free((void *)p);
+            return JNI_FALSE;
+        }
+
+        g_pocket = g_pocket_api.create(&config);
+        for (const char * p : required) free((void *)p);
+
+        if (!g_pocket) {
+            g_last_error = "Échec de chargement du modèle Pocket TTS (sherpa-onnx).";
+            LOGE("%s", g_last_error.c_str());
+            return JNI_FALSE;
+        }
+
+        g_engine = ENGINE_POCKET;
+        g_last_error.clear();
+        LOGD("Pocket TTS ready (sample rate %d)", g_pocket_api.sample_rate(g_pocket));
+        return JNI_TRUE;
+    }
+
     if (engine == "qwen3") {
         // qwen3-tts.cpp resolves its own filenames inside the directory.
         LOGD("Loading Qwen3-TTS from dir=%s", model_dir.c_str());
@@ -394,6 +582,9 @@ Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeIsModelReady(JNIEnv *, jobje
 
 JNIEXPORT jint JNICALL
 Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeGetSampleRate(JNIEnv *, jobject) {
+    if (g_engine == ENGINE_POCKET && g_pocket && g_pocket_api.sample_rate) {
+        return g_pocket_api.sample_rate(g_pocket);
+    }
     return 24000;
 }
 

@@ -3,17 +3,19 @@ import { ScreenContainer } from '@/components/screen-container';
 import { useTTS } from '@/lib/context/tts-context';
 import { useColors } from '@/hooks/use-colors';
 import { GenerationQueue } from '@/components/generation-queue';
+import { ProfilePicker } from '@/components/profile-picker';
+import { AdvancedParamsEditor } from '@/components/advanced-params-editor';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
-import { VOICE_PRESETS, getSupportedLanguages } from '@/lib/services/local-tts';
+import { VOICE_PRESETS, getSupportedLanguages, resolvePresetVoice } from '@/lib/services/local-tts';
+import type { VoiceProfile } from '@/lib/services/profiles';
+import { DEFAULT_SPEECH_PARAMS, type SpeechParams } from '@/lib/services/audio-pipeline';
 
 const VOICE_LIST = Object.entries(VOICE_PRESETS).map(([id, preset]) => ({
   id,
   name: preset.label,
   emoji: preset.emoji,
 }));
-
-
 
 export default function SynthesisScreen() {
   const colors = useColors();
@@ -22,13 +24,14 @@ export default function SynthesisScreen() {
   const [text, setText] = useState('');
   const [selectedModelId, setSelectedModelId] = useState<string>('');
   const [selectedLanguage, setSelectedLanguage] = useState('fr');
-  const [selectedVoice, setSelectedVoice] = useState('male-neutral');
+  const [selectedVoice, setSelectedVoice] = useState('female-neutral');
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const [profileVoice, setProfileVoice] = useState<VoiceProfile | null>(null);
+  const [params, setParams] = useState<SpeechParams>({ ...DEFAULT_SPEECH_PARAMS });
 
   const activeModel =
     installedModels.find((m) => m.id === selectedModelId) ?? installedModels[0];
   const LANGUAGES = getSupportedLanguages(activeModel?.type);
-  // Switching to an engine with a narrower language set must not leave a
-  // stale selection the engine would silently reinterpret as English.
   const effectiveLanguage = LANGUAGES.some((l) => l.id === selectedLanguage)
     ? selectedLanguage
     : LANGUAGES[0]?.id ?? 'en';
@@ -39,13 +42,27 @@ export default function SynthesisScreen() {
 
   const hasModels = installedModels.length > 0;
 
+  const handleSelectProfile = (profile: VoiceProfile | null) => {
+    setSelectedProfileId(profile?.id ?? null);
+    setProfileVoice(profile);
+    if (!profile) {
+      setSelectedModelId('');
+      setSelectedLanguage('fr');
+      setParams({ ...DEFAULT_SPEECH_PARAMS });
+      return;
+    }
+    setSelectedModelId(profile.modelId);
+    setSelectedLanguage(profile.language);
+    setParams({ ...profile.params });
+  };
+
   const handleSynthesize = async () => {
     if (!text.trim()) {
       Alert.alert('Erreur', 'Veuillez entrer du texte');
       return;
     }
 
-    const model = installedModels.find((m) => m.id === selectedModelId) ?? installedModels[0];
+    const model = activeModel;
     if (!model) {
       Alert.alert('Erreur', 'Aucun modèle installé. Installez-en un dans l\'onglet Modèles.');
       return;
@@ -53,20 +70,37 @@ export default function SynthesisScreen() {
 
     const spoken = text.trim();
     const language = effectiveLanguage;
+    const chosenParams = params;
+    const profile = profileVoice;
+    const presetId = selectedVoice;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    // Queued rather than awaited: the user can keep typing and fire the next
-    // one straight away, and the queue view reports where each request stands.
     enqueueGeneration('synthesis', spoken, async () => {
       const modelDir = await getModelPath(model.id);
       if (!modelDir) throw new Error('Modèle introuvable. Réinstallez-le.');
 
+      // A profile with a reference clones that voice; otherwise the classic
+      // TTS path applies (preset voice resolved per engine).
+      if (profile?.reference) {
+        return ttsEngine.cloneVoice({
+          text: spoken,
+          referenceAudioUri: profile.reference!.wavUri,
+          modelDir,
+          engine: model.type,
+          language,
+          params: chosenParams,
+        });
+      }
+
+      const preset = resolvePresetVoice(model.type, presetId, modelDir);
       return ttsEngine.synthesize({
         text: spoken,
         modelDir,
         engine: model.type,
         language,
-        quality: 'best',
+        instruct: preset?.instruct,
+        referenceAudioUri: preset?.referenceAudioUri,
+        params: chosenParams,
       });
     });
 
@@ -86,6 +120,17 @@ export default function SynthesisScreen() {
           </Text>
         </View>
 
+        {/* Profile quick-pick */}
+        <View className="px-6 mb-6">
+          <Text className="text-sm font-semibold text-foreground mb-3">Profil de voix</Text>
+          <ProfilePicker selectedId={selectedProfileId} onSelect={handleSelectProfile} />
+          {profileVoice?.reference && (
+            <Text className="text-xs text-muted">
+              🎙️ Utilise la voix « {profileVoice.reference.sourceName} » clonée.
+            </Text>
+          )}
+        </View>
+
         {/* Model Selection */}
         <View className="px-6 mb-6">
           <Text className="text-sm font-semibold text-foreground mb-3">Modèle</Text>
@@ -94,20 +139,17 @@ export default function SynthesisScreen() {
               {installedModels.map((model) => (
                 <Pressable
                   key={model.id}
-                  onPress={() => {
-                    setSelectedModelId(model.id);
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
+                  onPress={() => { setSelectedModelId(model.id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
                   style={({ pressed }) => [
                     {
-                      backgroundColor: (selectedModelId || installedModels[0]?.id) === model.id ? colors.primary : colors.surface,
+                      backgroundColor: activeModel?.id === model.id ? colors.primary : colors.surface,
                       opacity: pressed ? 0.8 : 1,
                     },
                   ]}
                   className="flex-1 rounded-lg p-3 border border-border"
                 >
                   <Text
-                    className={(selectedModelId || installedModels[0]?.id) === model.id
+                    className={activeModel?.id === model.id
                       ? 'text-white font-semibold text-center'
                       : 'text-foreground font-semibold text-center'}
                   >
@@ -137,10 +179,7 @@ export default function SynthesisScreen() {
             columnWrapperStyle={{ gap: 8, marginBottom: 8 }}
             renderItem={({ item }) => (
               <Pressable
-                onPress={() => {
-                  setSelectedLanguage(item.id);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
+                onPress={() => { setSelectedLanguage(item.id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
                 style={({ pressed }) => [
                   {
                     backgroundColor: effectiveLanguage === item.id ? colors.primary : colors.surface,
@@ -161,38 +200,52 @@ export default function SynthesisScreen() {
           />
         </View>
 
-        {/* Voice Selection */}
-        <View className="px-6 mb-6">
-          <Text className="text-sm font-semibold text-foreground mb-3">Voix (présélection)</Text>
-          <FlatList
-            data={VOICE_LIST}
-            keyExtractor={(item) => item.id}
-            scrollEnabled={false}
-            renderItem={({ item }) => (
-              <Pressable
-                onPress={() => {
-                  setSelectedVoice(item.id);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-                style={({ pressed }) => [
-                  {
-                    backgroundColor: selectedVoice === item.id ? colors.primary + '20' : colors.surface,
-                    opacity: pressed ? 0.8 : 1,
-                    borderColor: selectedVoice === item.id ? colors.primary : colors.border,
-                  },
-                ]}
-                className="flex-row items-center p-3 rounded-lg border mb-2"
-              >
-                <Text className="text-2xl mr-3">{item.emoji}</Text>
-                <Text className={selectedVoice === item.id ? 'text-primary font-semibold flex-1' : 'text-foreground font-semibold flex-1'}>
-                  {item.name}
-                </Text>
-                {selectedVoice === item.id && (
-                  <Text className="text-primary text-lg">✓</Text>
+        {/* Voice Selection — classic TTS only */}
+        {!profileVoice?.reference && (
+          <View className="px-6 mb-6">
+            <Text className="text-sm font-semibold text-foreground mb-3">Voix (présélection)</Text>
+            {activeModel?.type === 'qwen3' ? (
+              <Text className="text-xs text-muted">
+                Qwen3-TTS n&apos;expose pas de choix de voix — la voix est définie par le modèle.
+              </Text>
+            ) : (
+              <FlatList
+                data={VOICE_LIST}
+                keyExtractor={(item) => item.id}
+                scrollEnabled={false}
+                renderItem={({ item }) => (
+                  <Pressable
+                    onPress={() => { setSelectedVoice(item.id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                    style={({ pressed }) => [
+                      {
+                        backgroundColor: selectedVoice === item.id ? colors.primary + '20' : colors.surface,
+                        opacity: pressed ? 0.8 : 1,
+                        borderColor: selectedVoice === item.id ? colors.primary : colors.border,
+                      },
+                    ]}
+                    className="flex-row items-center p-3 rounded-lg border mb-2"
+                  >
+                    <Text className="text-2xl mr-3">{item.emoji}</Text>
+                    <Text className={selectedVoice === item.id ? 'text-primary font-semibold flex-1' : 'text-foreground font-semibold flex-1'}>
+                      {item.name}
+                    </Text>
+                    {selectedVoice === item.id && <Text className="text-primary text-lg">✓</Text>}
+                  </Pressable>
                 )}
-              </Pressable>
+              />
             )}
-          />
+          </View>
+        )}
+
+        {/* Advanced speech parameters */}
+        <View className="px-6 mb-6">
+          <Text className="text-sm font-semibold text-foreground mb-1">Paramètres avancés</Text>
+          <Text className="text-xs text-muted mb-3">
+            Pauses après chaque ponctuation, vitesse et volume.
+          </Text>
+          <View className="bg-surface border border-border rounded-2xl p-4">
+            <AdvancedParamsEditor params={params} onChange={setParams} />
+          </View>
         </View>
 
         {/* Text Input */}

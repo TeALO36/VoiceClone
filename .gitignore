@@ -63,3 +63,7 @@ Thumbs.db
 # Native build artifacts
 modules/**/android/.cxx/
 modules/**/android/build/
+
+# Native runtime binaries fetched by scripts/fetch-sherpa-onnx-*.sh
+modules/**/android/src/main/jniLibs/
+modules/**/ios/Frameworks/
