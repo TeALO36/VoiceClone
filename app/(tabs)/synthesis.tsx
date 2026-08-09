@@ -7,7 +7,7 @@ import { ProfilePicker } from '@/components/profile-picker';
 import { AdvancedParamsEditor } from '@/components/advanced-params-editor';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
-import { VOICE_PRESETS, getSupportedLanguages, resolvePresetVoice } from '@/lib/services/local-tts';
+import { VOICE_PRESETS, getLanguagesForModel, resolvePresetVoice } from '@/lib/services/local-tts';
 import type { VoiceProfile } from '@/lib/services/profiles';
 import { DEFAULT_SPEECH_PARAMS, type SpeechParams } from '@/lib/services/audio-pipeline';
 
@@ -31,7 +31,7 @@ export default function SynthesisScreen() {
 
   const activeModel =
     installedModels.find((m) => m.id === selectedModelId) ?? installedModels[0];
-  const LANGUAGES = getSupportedLanguages(activeModel?.type);
+  const LANGUAGES = getLanguagesForModel(activeModel);
   const effectiveLanguage = LANGUAGES.some((l) => l.id === selectedLanguage)
     ? selectedLanguage
     : LANGUAGES[0]?.id ?? 'en';

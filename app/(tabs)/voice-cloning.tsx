@@ -10,7 +10,7 @@ import { AdvancedParamsEditor } from '@/components/advanced-params-editor';
 import { useReferencePicker } from '@/hooks/use-reference-picker';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
-import { getSupportedLanguages } from '@/lib/services/local-tts';
+import { getLanguagesForModel } from '@/lib/services/local-tts';
 import type { Quality } from '@/modules/expo-qwen3-tts';
 import type { VoiceProfile } from '@/lib/services/profiles';
 import { DEFAULT_SPEECH_PARAMS, type SpeechParams } from '@/lib/services/audio-pipeline';
@@ -41,7 +41,7 @@ export default function VoiceCloningScreen() {
   // OmniVoice can use one for extra context but clones fine without it.
   // Pocket TTS does not need a transcript at all.
   const usesRefText = activeModel?.type === 'omnivoice';
-  const LANGUAGES = getSupportedLanguages(activeModel?.type);
+  const LANGUAGES = getLanguagesForModel(activeModel);
   const effectiveLanguage = LANGUAGES.some((l) => l.id === selectedLanguage)
     ? selectedLanguage
     : LANGUAGES[0]?.id ?? 'en';

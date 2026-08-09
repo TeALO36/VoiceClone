@@ -79,12 +79,11 @@ export interface CloneOptions {
 // Qwen3-TTS conditions on a fixed set of ten language ids and silently speaks
 // English for anything else, so the picker is filtered per engine rather than
 // offering choices one of them cannot honour. OmniVoice resolves ISO codes
-// against a 646-entry table and covers all of these. Pocket TTS currently ships
-// an English checkpoint only — per-language checkpoints (fr, de, pt, it, es)
-// exist upstream; as they are converted to ONNX they slot in as catalog
-// entries, one model per language.
+// against a 646-entry table and covers all of these. Pocket TTS has one
+// checkpoint per language (en, fr, de, pt, it, es) converted to ONNX — each
+// is a separate catalog entry, so the picker is locked to the model's language.
 const QWEN3_LANGUAGES = new Set(['zh', 'en', 'ja', 'ko', 'de', 'fr', 'ru', 'pt', 'es', 'it']);
-const POCKET_LANGUAGES = new Set(['en']);
+const POCKET_LANGUAGES = new Set(['en', 'fr', 'de', 'pt', 'it', 'es']);
 
 export function getSupportedLanguages(
   engine?: TtsEngine
@@ -93,6 +92,21 @@ export function getSupportedLanguages(
   if (engine === 'qwen3') return all.filter((l) => QWEN3_LANGUAGES.has(l.id));
   if (engine === 'pocket') return all.filter((l) => POCKET_LANGUAGES.has(l.id));
   return all;
+}
+
+/**
+ * Languages selectable for a given installed model. Pocket TTS checkpoints
+ * are language-specific: the selector is locked to the model's langId.
+ */
+export function getLanguagesForModel(model?: {
+  type?: string;
+  langId?: string;
+}): { id: string; name: string; flag: string }[] {
+  if (model?.type === 'pocket') {
+    const langId = model.langId && POCKET_LANGUAGES.has(model.langId) ? model.langId : 'en';
+    return allLanguages().filter((l) => l.id === langId);
+  }
+  return getSupportedLanguages(model?.type as TtsEngine | undefined);
 }
 
 function allLanguages(): { id: string; name: string; flag: string }[] {

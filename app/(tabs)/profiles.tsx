@@ -8,7 +8,7 @@ import { ReferenceSourcePicker } from '@/components/reference-source-picker';
 import { AdvancedParamsEditor } from '@/components/advanced-params-editor';
 import { GenerationQueue } from '@/components/generation-queue';
 import { profilesService, type VoiceProfile } from '@/lib/services/profiles';
-import { getSupportedLanguages, VOICE_PRESETS, resolvePresetVoice } from '@/lib/services/local-tts';
+import { getLanguagesForModel, VOICE_PRESETS, resolvePresetVoice } from '@/lib/services/local-tts';
 import { DEFAULT_SPEECH_PARAMS, type SpeechParams } from '@/lib/services/audio-pipeline';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
@@ -77,7 +77,7 @@ export default function ProfilesScreen() {
 
   const activeModel = installedModels.find((m) => m.id === modelId) ?? installedModels[0];
   const engine = activeModel?.type;
-  const LANGUAGES = getSupportedLanguages(engine);
+  const LANGUAGES = getLanguagesForModel(activeModel);
   const effectiveLanguage = LANGUAGES.some((l) => l.id === language) ? language : LANGUAGES[0]?.id ?? 'en';
 
   const canSave = name.trim().length > 0 && !!activeModel;

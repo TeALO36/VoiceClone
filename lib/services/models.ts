@@ -9,6 +9,12 @@ export interface TTSModel {
   type: 'qwen3' | 'omnivoice' | 'pocket';
   size: number;
   languages: string[];
+  /**
+   * For Pocket TTS the checkpoint is language-specific (one model per
+   * language). This carries the ISO id so the UI can lock the language
+   * selector to the model's language.
+   */
+  langId?: string;
   isInstalled: boolean;
   downloadedAt?: number;
 }
@@ -23,6 +29,99 @@ export function formatBytes(bytes: number): string {
   const units = ['o', 'Ko', 'Mo', 'Go'];
   const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   return `${Math.round((bytes / Math.pow(1024, i)) * 10) / 10} ${units[i]}`;
+}
+
+// Multilingual Pocket TTS entries (fr/de/pt/it/es). The ONNX packages are
+// converted from the Kyutai checkpoints with scripts/convert-pocket-tts.sh
+// and uploaded to the pocket-tts-models release of this repository.
+const POCKET_LANG_BASE =
+  'https://github.com/TeALO36/VoiceClone/releases/download/pocket-tts-models';
+
+const POCKET_LANG_ENTRIES: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
+  {
+    id: 'pocket-tts-fr',
+    name: 'Pocket TTS — Français',
+    description: 'Pocket TTS (Kyutai) en français — clonage zéro-shot 100M, très rapide sur CPU',
+    ggufFiles: pocketLangFiles(POCKET_LANG_BASE, 'fr'),
+    type: 'pocket',
+    langId: 'fr',
+    size: pocketLangSize('fr'),
+    languages: ['Français'],
+  },
+  {
+    id: 'pocket-tts-de',
+    name: 'Pocket TTS — Deutsch',
+    description: 'Pocket TTS (Kyutai) auf Deutsch — Zero-Shot-Cloning, sehr schnell auf der CPU',
+    ggufFiles: pocketLangFiles(POCKET_LANG_BASE, 'de'),
+    type: 'pocket',
+    langId: 'de',
+    size: pocketLangSize('de'),
+    languages: ['Deutsch'],
+  },
+  {
+    id: 'pocket-tts-pt',
+    name: 'Pocket TTS — Português',
+    description: 'Pocket TTS (Kyutai) em português — clonagem zero-shot 100M, muito rápido na CPU',
+    ggufFiles: pocketLangFiles(POCKET_LANG_BASE, 'pt'),
+    type: 'pocket',
+    langId: 'pt',
+    size: pocketLangSize('pt'),
+    languages: ['Português'],
+  },
+  {
+    id: 'pocket-tts-it',
+    name: 'Pocket TTS — Italiano',
+    description: 'Pocket TTS (Kyutai) in italiano — clonazione zero-shot 100M, molto veloce su CPU',
+    ggufFiles: pocketLangFiles(POCKET_LANG_BASE, 'it'),
+    type: 'pocket',
+    langId: 'it',
+    size: pocketLangSize('it'),
+    languages: ['Italiano'],
+  },
+  {
+    id: 'pocket-tts-es',
+    name: 'Pocket TTS — Español',
+    description: 'Pocket TTS (Kyutai) en español — clonación zero-shot 100M, muy rápido en CPU',
+    ggufFiles: pocketLangFiles(POCKET_LANG_BASE, 'es'),
+    type: 'pocket',
+    langId: 'es',
+    size: pocketLangSize('es'),
+    languages: ['Español'],
+  },
+];
+
+function pocketLangFiles(base: string, lang: string) {
+  return [
+    { name: 'lm_flow.int8.onnx', url: `${base}/${lang}_lm_flow.int8.onnx` },
+    { name: 'lm_main.int8.onnx', url: `${base}/${lang}_lm_main.int8.onnx` },
+    { name: 'encoder.onnx', url: `${base}/${lang}_encoder.onnx` },
+    { name: 'decoder.int8.onnx', url: `${base}/${lang}_decoder.int8.onnx` },
+    { name: 'text_conditioner.onnx', url: `${base}/${lang}_text_conditioner.onnx` },
+    { name: 'vocab.json', url: `${base}/${lang}_vocab.json` },
+    { name: 'token_scores.json', url: `${base}/${lang}_token_scores.json` },
+    { name: 'voices/bria.wav', url: `${base}/${lang}_default.wav` },
+    { name: 'voices/loona.wav', url: `${base}/${lang}_default.wav` },
+  ];
+}
+
+function pocketLangSize(lang: string): number {
+  // Real sizes of the converted packages (fr is the 24-layer model, ~4× the
+  // LM of the 6-layer base variants used for de/pt/it/es).
+  const lmMain = lang === 'fr' ? 305_144_125 : 76_341_079;
+  const vocab: Record<string, number> = {
+    de: 73_904, es: 74_962, fr: 74_240, it: 74_145, pt: 75_062,
+  };
+  const scores: Record<string, number> = {
+    de: 128_037, es: 129_011, fr: 128_500, it: 128_076, pt: 129_173,
+  };
+  const voice: Record<string, number> = {
+    de: 480_078, es: 458_622, fr: 480_078, it: 354_318, pt: 480_078,
+  };
+  const v = voice[lang] ?? 480_078;
+  return (
+    9_962_530 + lmMain + 39_752_071 + 22_684_077 + 16_388_344 +
+    (vocab[lang] ?? 74_000) + (scores[lang] ?? 128_500) + v + v
+  );
 }
 
 // ─── Master catalog ───
@@ -68,9 +167,16 @@ const MODEL_CATALOG: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
       { name: 'voices/loona.wav', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/test_wavs/loona.wav' },
     ],
     type: 'pocket',
+    langId: 'en',
     size: 9_962_530 + 76_341_079 + 72_713_165 + 22_693_618 + 16_388_343 + 69_478 + 123_616 + 2_152_986 + 50_478,
     languages: ['English'],
   },
+  // Multilingual Pocket TTS — the Kyutai checkpoints (fr/de/pt/it/es) are
+  // converted to the same sherpa-onnx ONNX layout and hosted as release
+  // assets on this repository (tag pocket-tts-models). Each language is a
+  // separate catalog entry: the checkpoint itself is language-specific, and
+  // one download per language keeps installs ~190 MB.
+  ...(POCKET_LANG_ENTRIES as Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[]),
   {
     id: 'qwen3-tts-06b',
     name: 'Qwen3-TTS 0.6B',
@@ -231,6 +337,15 @@ async function directorySize(dir: string): Promise<number> {
   }
 }
 
+/**
+ * Minimum plausible size for a downloaded file, used to spot truncated
+ * downloads. Model binaries must be substantial; tiny companion files only
+ * need to be non-empty.
+ */
+function minSanityBytes(fileName: string): number {
+  return /\.(onnx|gguf)$/i.test(fileName) ? 1024 * 1024 : 1;
+}
+
 function getModelDir(modelId: string): string {
   return `${FileSystem.documentDirectory}models/${modelId}`;
 }
@@ -355,12 +470,14 @@ class ModelsService {
           return false;
         }
 
-        // A truncated or error-page download still yields status 200. Every
-        // real GGUF here is far above 1 MB, so anything smaller is not a model
-        // and would only fail later inside the loader with a cryptic message.
+        // A truncated or error-page download still yields status 200. Model
+        // files (.onnx/.gguf) are far above 1 MB, so anything smaller is not a
+        // model and would only fail later inside the loader with a cryptic
+        // message. Small companion files (vocab.json, token_scores.json,
+        // voices/*.wav) are legitimately tiny — only require them to exist.
         const written = await FileSystem.getInfoAsync(filePath);
         const writtenSize = written.exists ? written.size ?? 0 : 0;
-        if (writtenSize < 1024 * 1024) {
+        if (writtenSize < minSanityBytes(fileName)) {
           console.error(`${fileName} is truncated (${writtenSize} bytes)`);
           await FileSystem.deleteAsync(modelDir, { idempotent: true });
           return false;
@@ -445,7 +562,7 @@ class ModelsService {
 
     for (const file of model.ggufFiles) {
       const info = await FileSystem.getInfoAsync(`${record.modelDir}/${file.name}`);
-      if (!info.exists || (info.size ?? 0) < 1024 * 1024) return false;
+      if (!info.exists || (info.size ?? 0) < minSanityBytes(file.name)) return false;
     }
     return true;
   }

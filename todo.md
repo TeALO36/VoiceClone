@@ -9,6 +9,9 @@
 - [x] Mettre en place gestion des permissions (microphone, stockage, caméra)
 - [x] Initialiser les sous-modules natifs (omnivoice-cpp, qwen3-tts-cpp)
 - [x] Intégrer Pocket TTS (Kyutai) via sherpa-onnx (Android JNI dlopen + iOS Swift)
+- [x] Convertir les checkpoints Pocket TTS multilingues (fr/de/pt/it/es) en ONNX int8 + fusion de insert_bos_before_voice (scripts/convert-pocket-tts-lang.sh)
+- [x] Vérifier chaque langue avec sherpa-onnx (clonage + TTS classique, audio de référence normalisée)
+- [x] Héberger les 5 packages sur la release pocket-tts-models
 
 ## Interface Utilisateur
 - [x] Créer écran Home avec navigation par onglets

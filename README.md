@@ -6,7 +6,7 @@ Trois moteurs on-device :
 
 | Moteur | Taille | Clonage | Langues | Notes |
 |--------|--------|---------|---------|-------|
-| **Pocket TTS (Kyutai)** | ~190 Mo | Zéro-shot | anglais (fr/de/pt/it/es bientôt) | Modèle 2026, très rapide sur CPU, via sherpa-onnx |
+| **Pocket TTS (Kyutai)** | ~190 Mo (fr : ~380 Mo) | Zéro-shot | **en, fr, de, pt, it, es** | Modèle 2026, très rapide sur CPU, via sherpa-onnx |
 | **OmniVoice** | ~630 Mo | Zéro-shot | 646+ | Instruction de voix libre |
 | **Qwen3-TTS 0.6B** | ~1,5 Go | Zéro-shot | 10 | Le plus fidèle, sans transcription |
 
@@ -15,7 +15,8 @@ Trois moteurs on-device :
 - **Clonage de voix zéro-shot** : un échantillon de 3 à 10 s suffit.
   - Source de l'échantillon : fichier audio (MP3, WAV, M4A…), **enregistrement direct depuis l'app** (micro), ou **vidéo** (MP4, MKV, AVI…) dont l'audio est extrait automatiquement.
 - **Synthèse classique** : voix prédéfinies (Pocket TTS embarque des voix de référence, OmniVoice prend des instructions vocales).
-- **Sélection de langue** par moteur (Pocket TTS : anglais).
+- **Sélection de langue** par moteur — Pocket TTS propose désormais **6 langues** (en/fr/de/pt/it/es), une par modèle : le sélecteur est verrouillé sur la langue du modèle Pocket choisi.
+- **Pocket TTS multilingue** : les checkpoints Kyutai par langue sont convertis en ONNX int8 (avec `insert_bos_before_voice` fusionné dans l'encodeur, indispensable aux modèles multilingues) et hébergés sur la release `pocket-tts-models` de ce dépôt — voir `scripts/convert-pocket-tts-lang.sh`.
 - **Profils de voix** : enregistrez tout un réglage — modèle, langue, voix de référence, et paramètres de parole — puis réutilisez-le en un tap depuis la Synthèse ou le Clonage.
 - **Paramètres avancés** appliqués au clonage :
   - Pause supplémentaire après **chaque virgule, point, deux-points, point-virgule, question, exclamation et saut de ligne** (de 0 à 3 s).
