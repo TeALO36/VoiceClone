@@ -58,6 +58,21 @@ jobs:
       - name: Generate Native Android Project
         run: npx expo prebuild --platform android --clean
 
+      # The Pocket TTS engine needs libsherpa-onnx-c-api.so + libonnxruntime.so
+      # inside the APK. They are gitignored (26 MB of binaries fetched by
+      # scripts/fetch-sherpa-onnx-android.sh), so every CI build must fetch
+      # them explicitly — a release APK built without them fails at runtime
+      # with "Bibliothèque Pocket TTS introuvable".
+      - name: Fetch sherpa-onnx native libraries
+        run: bash scripts/fetch-sherpa-onnx-android.sh
+
+      - name: Verify native libraries are staged
+        run: |
+          LIBDIR="modules/expo-qwen3-tts/android/src/main/jniLibs/arm64-v8a"
+          test -f "$LIBDIR/libsherpa-onnx-c-api.so" || { echo "Missing libsherpa-onnx-c-api.so"; exit 1; }
+          test -f "$LIBDIR/libonnxruntime.so" || { echo "Missing libonnxruntime.so"; exit 1; }
+          ls -la "$LIBDIR"
+
       - name: Build Release APK
         working-directory: ./android
         run: |
