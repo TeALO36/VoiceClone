@@ -376,14 +376,15 @@ export default function ProfilesScreen() {
           )}
         </View>
 
-        {/* Advanced params */}
+        {/* Advanced params — collapsible, collapsed by default */}
         <View className="px-6 mb-6">
-          <Text className="text-sm font-semibold text-foreground mb-1">Paramètres avancés</Text>
-          <Text className="text-xs text-muted mb-3">
-            Appliqués au clonage : pauses après chaque ponctuation, vitesse et volume.
-          </Text>
-          <View className="bg-surface border border-border rounded-2xl p-4">
-            <AdvancedParamsEditor params={params} onChange={setParams} />
+          <View className="bg-surface border border-border rounded-2xl px-4 py-3">
+            <AdvancedParamsEditor
+              key={editing?.id ?? 'new'}
+              params={params}
+              onChange={setParams}
+              initiallyExpanded={!!editing}
+            />
           </View>
         </View>
 

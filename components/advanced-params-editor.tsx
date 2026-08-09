@@ -1,6 +1,7 @@
 import { View, Text, Pressable } from 'react-native';
 import { useColors } from '@/hooks/use-colors';
 import * as Haptics from 'expo-haptics';
+import { useState } from 'react';
 import {
   DEFAULT_SPEECH_PARAMS,
   type SpeechParams,
@@ -9,6 +10,9 @@ import {
 interface AdvancedParamsEditorProps {
   params: SpeechParams;
   onChange: (params: SpeechParams) => void;
+  /** Defaults to collapsed so the advanced section does not dominate the
+   *  screen. Pass true to open it initially (e.g. when editing a profile). */
+  initiallyExpanded?: boolean;
 }
 
 interface StepSpec {
@@ -152,8 +156,13 @@ const PRESETS: { label: string; apply: (params: SpeechParams) => SpeechParams }[
   },
 ];
 
-export function AdvancedParamsEditor({ params, onChange }: AdvancedParamsEditorProps) {
+export function AdvancedParamsEditor({
+  params,
+  onChange,
+  initiallyExpanded = false,
+}: AdvancedParamsEditorProps) {
   const colors = useColors();
+  const [expanded, setExpanded] = useState(initiallyExpanded);
 
   const bump = (spec: StepSpec, direction: 1 | -1) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -162,8 +171,43 @@ export function AdvancedParamsEditor({ params, onChange }: AdvancedParamsEditorP
     onChange({ ...params, [spec.key]: value });
   };
 
+  // Summary shown while collapsed: which parameters differ from the defaults,
+  // so a saved profile's tuning is visible without expanding the section.
+  const activeCount = STEP_SPECS.filter(
+    (spec) => params[spec.key] !== DEFAULT_SPEECH_PARAMS[spec.key]
+  ).length;
+  const summary = activeCount === 0
+    ? 'Réglages par défaut'
+    : activeCount === 1
+      ? '1 réglage personnalisé'
+      : `${activeCount} réglages personnalisés`;
+
   return (
     <View>
+      {/* Collapsible header */}
+      <Pressable
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          setExpanded((v) => !v);
+        }}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        className="flex-row items-center justify-between py-1"
+      >
+        <View className="flex-1 mr-3">
+          <Text className="text-sm font-semibold text-foreground">Paramètres avancés</Text>
+          <Text className="text-xs text-muted mt-0.5">{summary}</Text>
+        </View>
+        <Text
+          className="text-lg font-bold"
+          style={{ color: colors.primary, transform: [{ rotate: expanded ? '0deg' : '-90deg' }] }}
+        >
+          ▾
+        </Text>
+      </Pressable>
+
+      {expanded && (
+        <View className="mt-3">
       {/* Presets */}
       <View className="flex-row gap-2 flex-wrap mb-4">
         {PRESETS.map((preset) => (
@@ -231,6 +275,8 @@ export function AdvancedParamsEditor({ params, onChange }: AdvancedParamsEditorP
           </View>
         );
       })}
+        </View>
+      )}
     </View>
   );
 }

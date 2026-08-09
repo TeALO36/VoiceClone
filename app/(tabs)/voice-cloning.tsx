@@ -313,14 +313,10 @@ export default function VoiceCloningScreen() {
           </View>
         )}
 
-        {/* Advanced speech parameters */}
+        {/* Advanced speech parameters — collapsible, collapsed by default */}
         {picker.isReady && (
           <View className="px-6 mb-6">
-            <Text className="text-sm font-semibold text-foreground mb-1">Paramètres avancés</Text>
-            <Text className="text-xs text-muted mb-3">
-              Pauses après chaque ponctuation, vitesse et volume — appliqués à la voix clonée.
-            </Text>
-            <View className="bg-surface border border-border rounded-2xl p-4">
+            <View className="bg-surface border border-border rounded-2xl px-4 py-3">
               <AdvancedParamsEditor params={params} onChange={setParams} />
             </View>
           </View>

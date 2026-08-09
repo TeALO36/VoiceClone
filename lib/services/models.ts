@@ -5,7 +5,7 @@ export interface TTSModel {
   id: string;
   name: string;
   description: string;
-  ggufFiles: { name: string; url: string }[];
+  ggufFiles: { name: string; url: string; expectedSize?: number }[];
   type: 'qwen3' | 'omnivoice' | 'pocket';
   size: number;
   languages: string[];
@@ -36,6 +36,26 @@ export function formatBytes(bytes: number): string {
 // and uploaded to the pocket-tts-models release of this repository.
 const POCKET_LANG_BASE =
   'https://github.com/TeALO36/VoiceClone/releases/download/pocket-tts-models';
+
+// Exact byte sizes of every converted package, read from the release assets.
+// fr is the 24-layer model (~4× the LM of the 6-layer base variants used for
+// the other languages). Used for a weight-based progress bar (a 305 MB file
+// must not look like 1/9 of the download) and for a strict post-download
+// size check that catches truncated files.
+const POCKET_SHARED_SIZES = {
+  lmFlow: 9_962_530,
+  encoder: 39_752_071,
+  decoder: 22_684_077,
+  textConditioner: 16_388_344,
+};
+
+const POCKET_LANG_SIZES: Record<string, { lmMain: number; vocab: number; scores: number; voice: number }> = {
+  fr: { lmMain: 305_144_125, vocab: 74_240, scores: 128_500, voice: 480_078 },
+  de: { lmMain: 76_341_079, vocab: 73_904, scores: 128_037, voice: 480_078 },
+  pt: { lmMain: 76_341_079, vocab: 75_062, scores: 129_173, voice: 480_078 },
+  it: { lmMain: 76_341_079, vocab: 74_145, scores: 128_076, voice: 354_318 },
+  es: { lmMain: 76_341_079, vocab: 74_962, scores: 129_011, voice: 458_622 },
+};
 
 const POCKET_LANG_ENTRIES: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
   {
@@ -91,36 +111,26 @@ const POCKET_LANG_ENTRIES: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
 ];
 
 function pocketLangFiles(base: string, lang: string) {
+  const s = POCKET_LANG_SIZES[lang] ?? POCKET_LANG_SIZES.de;
   return [
-    { name: 'lm_flow.int8.onnx', url: `${base}/${lang}_lm_flow.int8.onnx` },
-    { name: 'lm_main.int8.onnx', url: `${base}/${lang}_lm_main.int8.onnx` },
-    { name: 'encoder.onnx', url: `${base}/${lang}_encoder.onnx` },
-    { name: 'decoder.int8.onnx', url: `${base}/${lang}_decoder.int8.onnx` },
-    { name: 'text_conditioner.onnx', url: `${base}/${lang}_text_conditioner.onnx` },
-    { name: 'vocab.json', url: `${base}/${lang}_vocab.json` },
-    { name: 'token_scores.json', url: `${base}/${lang}_token_scores.json` },
-    { name: 'voices/bria.wav', url: `${base}/${lang}_default.wav` },
-    { name: 'voices/loona.wav', url: `${base}/${lang}_default.wav` },
+    { name: 'lm_flow.int8.onnx', url: `${base}/${lang}_lm_flow.int8.onnx`, expectedSize: POCKET_SHARED_SIZES.lmFlow },
+    { name: 'lm_main.int8.onnx', url: `${base}/${lang}_lm_main.int8.onnx`, expectedSize: s.lmMain },
+    { name: 'encoder.onnx', url: `${base}/${lang}_encoder.onnx`, expectedSize: POCKET_SHARED_SIZES.encoder },
+    { name: 'decoder.int8.onnx', url: `${base}/${lang}_decoder.int8.onnx`, expectedSize: POCKET_SHARED_SIZES.decoder },
+    { name: 'text_conditioner.onnx', url: `${base}/${lang}_text_conditioner.onnx`, expectedSize: POCKET_SHARED_SIZES.textConditioner },
+    { name: 'vocab.json', url: `${base}/${lang}_vocab.json`, expectedSize: s.vocab },
+    { name: 'token_scores.json', url: `${base}/${lang}_token_scores.json`, expectedSize: s.scores },
+    { name: 'voices/bria.wav', url: `${base}/${lang}_default.wav`, expectedSize: s.voice },
+    { name: 'voices/loona.wav', url: `${base}/${lang}_default.wav`, expectedSize: s.voice },
   ];
 }
 
 function pocketLangSize(lang: string): number {
-  // Real sizes of the converted packages (fr is the 24-layer model, ~4× the
-  // LM of the 6-layer base variants used for de/pt/it/es).
-  const lmMain = lang === 'fr' ? 305_144_125 : 76_341_079;
-  const vocab: Record<string, number> = {
-    de: 73_904, es: 74_962, fr: 74_240, it: 74_145, pt: 75_062,
-  };
-  const scores: Record<string, number> = {
-    de: 128_037, es: 129_011, fr: 128_500, it: 128_076, pt: 129_173,
-  };
-  const voice: Record<string, number> = {
-    de: 480_078, es: 458_622, fr: 480_078, it: 354_318, pt: 480_078,
-  };
-  const v = voice[lang] ?? 480_078;
+  const s = POCKET_LANG_SIZES[lang] ?? POCKET_LANG_SIZES.de;
   return (
-    9_962_530 + lmMain + 39_752_071 + 22_684_077 + 16_388_344 +
-    (vocab[lang] ?? 74_000) + (scores[lang] ?? 128_500) + v + v
+    POCKET_SHARED_SIZES.lmFlow + s.lmMain + POCKET_SHARED_SIZES.encoder +
+    POCKET_SHARED_SIZES.decoder + POCKET_SHARED_SIZES.textConditioner +
+    s.vocab + s.scores + s.voice + s.voice
   );
 }
 
@@ -156,15 +166,15 @@ const MODEL_CATALOG: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
     // Mirrored from the sherpa-onnx release archive to HuggingFace so each file
     // can be downloaded individually by the app's resumable downloader.
     ggufFiles: [
-      { name: 'lm_flow.int8.onnx', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/lm_flow.int8.onnx' },
-      { name: 'lm_main.int8.onnx', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/lm_main.int8.onnx' },
-      { name: 'encoder.onnx', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/encoder.onnx' },
-      { name: 'decoder.int8.onnx', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/decoder.int8.onnx' },
-      { name: 'text_conditioner.onnx', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/text_conditioner.onnx' },
-      { name: 'vocab.json', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/vocab.json' },
-      { name: 'token_scores.json', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/token_scores.json' },
-      { name: 'voices/bria.wav', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/test_wavs/bria.wav' },
-      { name: 'voices/loona.wav', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/test_wavs/loona.wav' },
+      { name: 'lm_flow.int8.onnx', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/lm_flow.int8.onnx', expectedSize: 9_962_530 },
+      { name: 'lm_main.int8.onnx', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/lm_main.int8.onnx', expectedSize: 76_341_079 },
+      { name: 'encoder.onnx', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/encoder.onnx', expectedSize: 72_713_165 },
+      { name: 'decoder.int8.onnx', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/decoder.int8.onnx', expectedSize: 22_693_618 },
+      { name: 'text_conditioner.onnx', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/text_conditioner.onnx', expectedSize: 16_388_343 },
+      { name: 'vocab.json', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/vocab.json', expectedSize: 69_478 },
+      { name: 'token_scores.json', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/token_scores.json', expectedSize: 123_616 },
+      { name: 'voices/bria.wav', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/test_wavs/bria.wav', expectedSize: 2_152_986 },
+      { name: 'voices/loona.wav', url: 'https://huggingface.co/csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26/resolve/main/test_wavs/loona.wav', expectedSize: 50_478 },
     ],
     type: 'pocket',
     langId: 'en',
@@ -430,10 +440,16 @@ class ModelsService {
       await FileSystem.makeDirectoryAsync(modelDir, { intermediates: true });
     }
 
-    const totalFiles = model.ggufFiles.length;
-    let totalDownloaded = 0;
+    // Progress is weighted by each file's expected byte size, not by file
+    // count. A 305 MB lm_main would otherwise look like 1/9 of the download
+    // and the bar would appear stuck at ~15% for most of the install.
+    const totalWeight = model.ggufFiles.reduce(
+      (sum, f) => sum + (f.expectedSize ?? minSanityBytes(f.name)),
+      0
+    );
+    let downloadedWeight = 0;
 
-    for (let i = 0; i < totalFiles; i++) {
+    for (let i = 0; i < model.ggufFiles.length; i++) {
       const fileInfo = model.ggufFiles[i];
       const fileName = fileInfo.name;
       const fileUrl = fileInfo.url;
@@ -446,51 +462,95 @@ class ModelsService {
         await FileSystem.makeDirectoryAsync(parentDir, { intermediates: true });
       }
 
-      try {
-        // Base progress from already downloaded files
-        const baseProgress = (i / totalFiles) * 100;
-        
-        const downloadResumable = FileSystem.createDownloadResumable(
-          fileUrl,
-          filePath,
-          {},
-          (downloadProgress) => {
-            const fileProgress = downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite;
-            // File contributes 1/totalFiles to overall progress
-            const overallProgress = baseProgress + (fileProgress * (100 / totalFiles));
-            onProgress?.(Math.min(99, Math.round(overallProgress)));
+      const fileWeight = fileInfo.expectedSize ?? minSanityBytes(fileName);
+      const baseProgress = (downloadedWeight / totalWeight) * 100;
+
+      // Retry with resume: the native side resumes a transfer when given the
+      // byte offset already on disk (Range header + append). After a
+      // mid-transfer failure we re-read the partial file's size and rebuild
+      // the resumable with it, so the next attempt continues from where the
+      // connection dropped instead of restarting a 300 MB transfer from zero.
+      const MAX_ATTEMPTS = 3;
+      let downloadResult: FileSystem.FileSystemDownloadResult | undefined;
+      let lastError: unknown;
+      const onFileProgress = (downloadProgress: FileSystem.DownloadProgressData) => {
+        const expected = downloadProgress.totalBytesExpectedToWrite;
+        const written = downloadProgress.totalBytesWritten;
+        if (expected > 0 && written >= 0) {
+          const fileProgress = Math.min(1, written / expected);
+          onProgress?.(Math.min(99, Math.round(baseProgress + fileProgress * (fileWeight / totalWeight) * 100)));
+        }
+      };
+      let done = false;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS && !done; attempt++) {
+        let resumeData: string | undefined;
+        try {
+          // resumeData is the byte offset of the partial file on disk — the
+          // same value the native pauseAsync() reports as file.length(). Any
+          // existing partial file is resumed even on the first attempt (e.g.
+          // the app was killed mid-transfer); the strict size check below
+          // catches a corrupted append and restarts from scratch.
+          const partial = await FileSystem.getInfoAsync(filePath);
+          if (partial.exists && (partial.size ?? 0) > 0) {
+            resumeData = String(partial.size);
           }
-        );
+          if (attempt > 0) {
+            await new Promise((r) => setTimeout(r, 1500 * attempt));
+          }
+          const resumable = FileSystem.createDownloadResumable(
+            fileUrl,
+            filePath,
+            {},
+            onFileProgress,
+            resumeData
+          );
+          downloadResult = await resumable.downloadAsync();
 
-        const downloadResult = await downloadResumable.downloadAsync();
+          // A plain download answers 200; a resumed one answers 206 (Partial
+          // Content) because of the Range header. Both are success. A plain
+          // 200 while we asked for a Range means the server ignored it and
+          // would have appended onto the partial file — discard and restart.
+          if (downloadResult && (downloadResult.status === 200 || downloadResult.status === 206)) {
+            if (resumeData != null && downloadResult.status === 200) {
+              lastError = new Error('Server ignored Range header, restarting file');
+              await FileSystem.deleteAsync(filePath, { idempotent: true });
+              continue;
+            }
+          } else {
+            lastError = new Error(`HTTP ${downloadResult?.status}`);
+            continue;
+          }
 
-        if (!downloadResult || downloadResult.status !== 200) {
-          console.error(`Failed to download ${fileName}: HTTP ${downloadResult?.status}`);
-          await FileSystem.deleteAsync(modelDir, { idempotent: true });
-          return false;
+          // A truncated or error-page download still yields status 200. When
+          // the exact size is known (catalog), require it — GitHub/HF serve
+          // content with a stable Content-Length, so any mismatch means the
+          // transfer was cut off. For files without a known size, fall back to
+          // the 1 MB sanity floor for binaries and non-empty for tiny
+          // companion files.
+          const written = await FileSystem.getInfoAsync(filePath);
+          const writtenSize = written.exists ? written.size ?? 0 : 0;
+          const expectedSize = fileInfo.expectedSize;
+          if (expectedSize != null
+            ? writtenSize !== expectedSize
+            : writtenSize < minSanityBytes(fileName)) {
+            lastError = new Error(`${fileName} truncated (${writtenSize}/${expectedSize ?? '?'} bytes)`);
+            await FileSystem.deleteAsync(filePath, { idempotent: true });
+            continue;
+          }
+          done = true;
+        } catch (error) {
+          lastError = error;
         }
+      }
 
-        // A truncated or error-page download still yields status 200. Model
-        // files (.onnx/.gguf) are far above 1 MB, so anything smaller is not a
-        // model and would only fail later inside the loader with a cryptic
-        // message. Small companion files (vocab.json, token_scores.json,
-        // voices/*.wav) are legitimately tiny — only require them to exist.
-        const written = await FileSystem.getInfoAsync(filePath);
-        const writtenSize = written.exists ? written.size ?? 0 : 0;
-        if (writtenSize < minSanityBytes(fileName)) {
-          console.error(`${fileName} is truncated (${writtenSize} bytes)`);
-          await FileSystem.deleteAsync(modelDir, { idempotent: true });
-          return false;
-        }
-
-        totalDownloaded++;
-        const currentProgress = (totalDownloaded / totalFiles) * 100;
-        onProgress?.(Math.round(currentProgress));
-      } catch (error) {
-        console.error(`Download error for ${fileName}:`, error);
-        await FileSystem.deleteAsync(modelDir, { idempotent: true }).catch(() => {});
+      if (!done) {
+        console.error(`Failed to download ${fileName}:`, lastError);
+        await FileSystem.deleteAsync(modelDir, { idempotent: true });
         return false;
       }
+
+      downloadedWeight += fileWeight;
+      onProgress?.(Math.min(99, Math.round((downloadedWeight / totalWeight) * 100)));
     }
 
     // Re-read under the lock: another install may have completed while this
