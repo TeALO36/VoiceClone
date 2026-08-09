@@ -33,9 +33,11 @@ export function formatBytes(bytes: number): string {
 
 // Multilingual Pocket TTS entries (fr/de/pt/it/es). The ONNX packages are
 // converted from the Kyutai checkpoints with scripts/convert-pocket-tts.sh
-// and uploaded to the pocket-tts-models release of this repository.
+// and hosted on HuggingFace — the same CDN that serves the English package
+// (which downloads reliably on mobile, unlike GitHub release assets).
+// See scripts/upload-pocket-models-hf.py.
 const POCKET_LANG_BASE =
-  'https://github.com/TeALO36/VoiceClone/releases/download/pocket-tts-models';
+  'https://huggingface.co/TeALO/pocket-tts-models/resolve/main';
 
 // Exact byte sizes of every converted package, read from the release assets.
 // fr is the 24-layer model (~4× the LM of the 6-layer base variants used for
@@ -113,15 +115,15 @@ const POCKET_LANG_ENTRIES: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
 function pocketLangFiles(base: string, lang: string) {
   const s = POCKET_LANG_SIZES[lang] ?? POCKET_LANG_SIZES.de;
   return [
-    { name: 'lm_flow.int8.onnx', url: `${base}/${lang}_lm_flow.int8.onnx`, expectedSize: POCKET_SHARED_SIZES.lmFlow },
-    { name: 'lm_main.int8.onnx', url: `${base}/${lang}_lm_main.int8.onnx`, expectedSize: s.lmMain },
-    { name: 'encoder.onnx', url: `${base}/${lang}_encoder.onnx`, expectedSize: POCKET_SHARED_SIZES.encoder },
-    { name: 'decoder.int8.onnx', url: `${base}/${lang}_decoder.int8.onnx`, expectedSize: POCKET_SHARED_SIZES.decoder },
-    { name: 'text_conditioner.onnx', url: `${base}/${lang}_text_conditioner.onnx`, expectedSize: POCKET_SHARED_SIZES.textConditioner },
-    { name: 'vocab.json', url: `${base}/${lang}_vocab.json`, expectedSize: s.vocab },
-    { name: 'token_scores.json', url: `${base}/${lang}_token_scores.json`, expectedSize: s.scores },
-    { name: 'voices/bria.wav', url: `${base}/${lang}_default.wav`, expectedSize: s.voice },
-    { name: 'voices/loona.wav', url: `${base}/${lang}_default.wav`, expectedSize: s.voice },
+    { name: 'lm_flow.int8.onnx', url: `${base}/${lang}/lm_flow.int8.onnx`, expectedSize: POCKET_SHARED_SIZES.lmFlow },
+    { name: 'lm_main.int8.onnx', url: `${base}/${lang}/lm_main.int8.onnx`, expectedSize: s.lmMain },
+    { name: 'encoder.onnx', url: `${base}/${lang}/encoder.onnx`, expectedSize: POCKET_SHARED_SIZES.encoder },
+    { name: 'decoder.int8.onnx', url: `${base}/${lang}/decoder.int8.onnx`, expectedSize: POCKET_SHARED_SIZES.decoder },
+    { name: 'text_conditioner.onnx', url: `${base}/${lang}/text_conditioner.onnx`, expectedSize: POCKET_SHARED_SIZES.textConditioner },
+    { name: 'vocab.json', url: `${base}/${lang}/vocab.json`, expectedSize: s.vocab },
+    { name: 'token_scores.json', url: `${base}/${lang}/token_scores.json`, expectedSize: s.scores },
+    { name: 'voices/bria.wav', url: `${base}/${lang}/default.wav`, expectedSize: s.voice },
+    { name: 'voices/loona.wav', url: `${base}/${lang}/default.wav`, expectedSize: s.voice },
   ];
 }
 
