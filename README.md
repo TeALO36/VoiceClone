@@ -97,7 +97,7 @@ pondérée par le poids réel de chaque fichier) :
 ## Architecture
 
 - `lib/services/local-tts.ts` — orchestration des moteurs + pipeline des paramètres avancés.
-- `lib/services/audio-pipeline.ts` — segmentation par ponctuation, codec WAV, insertion de silence, time-stretch WSOLA (pur TS, testé).
+- `lib/services/audio-pipeline.ts` — codec WAV, détection/extension des pauses naturelles, time-stretch WSOLA, volume (pur TS, testé). Les paramètres avancés s'appliquent en post-traitement sur **une seule génération** : les silences que le moteur a déjà placés aux ponctuations sont prolongés, la prosodie du modèle est conservée de bout en bout.
 - `lib/services/profiles.ts` — persistance des profils (AsyncStorage + WAV de référence dans les documents).
 - `modules/expo-qwen3-tts/` — module natif : pont JNI C++ (Android), module Swift (iOS), fallback web.
   - `cpp/voxclone-jni.cpp` — OmniVoice + Qwen3-TTS compilés dans `libqwen3tts_jni.so` ; Pocket TTS chargé par `dlopen` de `libsherpa-onnx-c-api.so`.

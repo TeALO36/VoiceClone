@@ -7,19 +7,21 @@
  * engine output, so it behaves identically for OmniVoice, Qwen3-TTS and Pocket
  * TTS:
  *
- *  1. The text is split into segments at punctuation (`,` `;` `:` `!` `?` `.`
- *     and newlines), keeping the punctuation attached so the engine still
- *     applies its natural prosody.
- *  2. Each segment is synthesized separately and the segments are glued back
- *     together with an *extra* silence of the configured duration after each
- *     punctuation kind (0 ms = engine's natural rhythm untouched).
+ *  1. The whole text is always synthesized in a SINGLE engine call, so the
+ *     model's prosody (intonation contour, coarticulation across punctuation)
+ *     survives end to end. Synthesizing per-segment and gluing the parts back
+ *     used to restart the contour at every break — this file deliberately no
+ *     longer does that.
+ *  2. Pauses: the silence gaps the engine already placed at the punctuation
+ *     marks are detected in the output audio and aligned to the text (see
+ *     detectPauseGaps / alignPausesToPunctuation), then lengthened by the
+ *     configured extra duration. Pauses are only ever extended where the
+ *     engine already paused — never invented mid-word.
  *  3. The whole clip is then time-stretched with WSOLA to the requested speed
  *     (preserves pitch — a naive resample would shift the voice's pitch too)
  *     and finally scaled by the volume gain.
  *
- * When every parameter is at its default the pipeline is bypassed entirely and
- * the text is synthesized in a single engine call for the best natural
- * prosody.
+ * When every parameter is at its default the clip is returned untouched.
  */
 
 export type PunctuationKind =
@@ -147,6 +149,221 @@ export function segmentTextWithPauses(text: string): TextSegment[] {
   closeSegment();
 
   return segments;
+}
+
+// ─── Natural-pause post-processing (single generation + extension) ────────
+//
+// The old "advanced params" pipeline split the text at punctuation and
+// synthesized each segment separately, which restarted the intonation
+// contour (and, for Pocket TTS, the voice conditioning) at every break.
+// Instead we generate the whole utterance in ONE engine call — prosody
+// intact — then *extend* the pauses the engine already produced at the
+// punctuation marks: silence gaps in the output are detected, aligned to
+// the punctuation positions in the text, and lengthened by the configured
+// extra duration. Speed is then applied with pitch-preserving WSOLA.
+
+export interface PauseGap {
+  /** First sample index of the low-energy region. */
+  start: number;
+  /** One past the last sample index of the low-energy region. */
+  end: number;
+}
+
+export interface PauseExtension {
+  gap: PauseGap;
+  kind: PunctuationKind;
+}
+
+export interface PauseDetectOptions {
+  /** RMS window length for the silence test. */
+  frameMs: number;
+  /** Hop between windows (overlap makes the gaps smoother). */
+  hopMs: number;
+  /** Shortest silence kept as a pause candidate. */
+  minGapMs: number;
+  /** Two silences separated by less speech than this are merged. */
+  mergeGapMs: number;
+  /** Absolute RMS floor (16-bit noise is far below this). */
+  silenceFloor: number;
+  /** Silence threshold as a fraction of the clip peak. */
+  silenceRatio: number;
+  /** Max |gap center − punctuation| distance (fraction of clip) to align. */
+  alignTolerance: number;
+}
+
+export const DEFAULT_PAUSE_DETECT: PauseDetectOptions = {
+  frameMs: 10,
+  hopMs: 5,
+  minGapMs: 100,
+  mergeGapMs: 40,
+  silenceFloor: 0.004,
+  silenceRatio: 0.04,
+  alignTolerance: 0.06,
+};
+
+/**
+ * Find low-energy regions (silences) in a mono float clip. Word-boundary
+ * micro-pauses (40–90 ms) are filtered out by `minGapMs`; what remains are
+ * the real breathing pauses the engine places at punctuation.
+ */
+export function detectPauseGaps(
+  samples: Float32Array,
+  sampleRate: number,
+  opts: Partial<PauseDetectOptions> = {}
+): PauseGap[] {
+  const o = { ...DEFAULT_PAUSE_DETECT, ...opts };
+  const frame = Math.max(1, Math.round((o.frameMs / 1000) * sampleRate));
+  const hop = Math.max(1, Math.round((o.hopMs / 1000) * sampleRate));
+  const minSamples = Math.round((o.minGapMs / 1000) * sampleRate);
+  const mergeSamples = Math.round((o.mergeGapMs / 1000) * sampleRate);
+
+  let peak = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const a = samples[i] < 0 ? -samples[i] : samples[i];
+    if (a > peak) peak = a;
+  }
+  const thr = Math.max(o.silenceFloor, peak * o.silenceRatio);
+
+  // Frame RMS over the clip.
+  const rms: number[] = [];
+  for (let i = 0; i + frame <= samples.length; i += hop) {
+    let acc = 0;
+    for (let j = i; j < i + frame; j++) acc += samples[j] * samples[j];
+    rms.push(Math.sqrt(acc / frame));
+  }
+
+  // Group consecutive silent frames into raw gaps.
+  const raw: PauseGap[] = [];
+  let inGap = false;
+  let gapStart = 0;
+  for (let k = 0; k <= rms.length; k++) {
+    const silent = k < rms.length && rms[k] < thr;
+    if (silent && !inGap) {
+      inGap = true;
+      gapStart = k;
+    } else if (!silent && inGap) {
+      inGap = false;
+      raw.push({ start: gapStart * hop, end: (k - 1) * hop + frame });
+    }
+  }
+
+  // Merge gaps separated by a short blip, then drop the sub-threshold ones.
+  const merged: PauseGap[] = [];
+  for (const g of raw) {
+    const last = merged[merged.length - 1];
+    if (last && g.start - last.end < mergeSamples) last.end = g.end;
+    else merged.push({ ...g });
+  }
+  const gaps = merged.filter((g) => g.end - g.start >= minSamples);
+
+  // The engine pads the very start of the clip with silence; that is not a
+  // pause. The trailing silence can be the final punctuation's pause, so it
+  // is kept for the alignment step.
+  if (gaps.length > 0 && gaps[0].start < 0.03 * sampleRate) gaps.shift();
+  return gaps;
+}
+
+/**
+ * Ordered punctuation marks of `text` with their normalized position
+ * (character index / length). Runs of delimiters collapse to one mark,
+ * taking the kind of the last character ("?!" → question).
+ */
+export function punctuationPositions(
+  text: string
+): { kind: PunctuationKind; frac: number }[] {
+  const out: { kind: PunctuationKind; frac: number }[] = [];
+  let runKind: PunctuationKind | null = null;
+  let runStart = -1;
+  const denom = Math.max(1, text.length - 1);
+  for (let i = 0; i < text.length; i++) {
+    const kind = PUNCTUATION_KIND[text[i]];
+    if (kind) {
+      if (!runKind) runStart = i;
+      runKind = kind;
+    } else if (runKind) {
+      out.push({ kind: runKind, frac: runStart / denom });
+      runKind = null;
+    }
+  }
+  if (runKind) out.push({ kind: runKind, frac: runStart / denom });
+  return out;
+}
+
+/**
+ * Align the detected silence gaps to the text punctuation marks: each gap is
+ * matched to the nearest not-yet-used punctuation (normalized positions), and
+ * kept only when it is close enough. A punctuation with no nearby gap is left
+ * untouched — we never invent a pause where the engine produced none (that
+ * would risk cutting a word).
+ */
+export function alignPausesToPunctuation(
+  text: string,
+  gaps: PauseGap[],
+  totalSamples: number,
+  opts: Partial<PauseDetectOptions> = {}
+): PauseExtension[] {
+  const o = { ...DEFAULT_PAUSE_DETECT, ...opts };
+  const puncts = punctuationPositions(text);
+  if (puncts.length === 0 || gaps.length === 0 || totalSamples <= 0) return [];
+
+  const used = new Set<number>();
+  const out: PauseExtension[] = [];
+  for (const gap of gaps) {
+    const center = (gap.start + gap.end) / 2 / totalSamples;
+    let best = -1;
+    let bestDist = Infinity;
+    for (let i = 0; i < puncts.length; i++) {
+      if (used.has(i)) continue;
+      const d = Math.abs(puncts[i].frac - center);
+      if (d < bestDist) {
+        bestDist = d;
+        best = i;
+      }
+    }
+    if (best >= 0 && bestDist <= o.alignTolerance) {
+      used.add(best);
+      out.push({ gap, kind: puncts[best].kind });
+    }
+  }
+  return out;
+}
+
+/**
+ * Insert the configured extra silence at each extension's gap center. Gaps
+ * are processed in ascending order and the samples between them copied, so
+ * the speech around each pause stays exactly as the engine produced it.
+ */
+export function extendPauses(
+  samples: Float32Array,
+  sampleRate: number,
+  extensions: PauseExtension[],
+  extraMsFor: (kind: PunctuationKind) => number
+): Float32Array {
+  const inserts = extensions
+    .map((e) => ({
+      at: Math.round((e.gap.start + e.gap.end) / 2),
+      extra: Math.round((extraMsFor(e.kind) / 1000) * sampleRate),
+    }))
+    .filter((x) => x.extra > 0)
+    .sort((a, b) => a.at - b.at);
+  if (inserts.length === 0) return samples;
+
+  let totalExtra = 0;
+  for (const ins of inserts) totalExtra += ins.extra;
+  const out = new Float32Array(samples.length + totalExtra);
+  let src = 0;
+  let dst = 0;
+  for (const ins of inserts) {
+    // Guard against overlapping/duplicate insertion points (two punctuation
+    // marks aligned to the same silence): clamp so we never copy backwards.
+    const at = Math.max(src, Math.min(ins.at, samples.length));
+    out.set(samples.subarray(src, at), dst);
+    dst += at - src;
+    src = at;
+    dst += ins.extra; // zeros — the lengthened pause
+  }
+  out.set(samples.subarray(src), dst);
+  return out;
 }
 
 // ─── WAV codec (16-bit mono) ──────────────────────────────────────────────

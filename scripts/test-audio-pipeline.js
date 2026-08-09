@@ -61,6 +61,10 @@ const {
   concatSegments,
   applyVolume,
   timeStretch,
+  detectPauseGaps,
+  punctuationPositions,
+  alignPausesToPunctuation,
+  extendPauses,
 } = m;
 
 console.log('\nsegmentTextWithPauses');
@@ -130,6 +134,95 @@ console.log('\nwav codec');
     threw = true;
   }
   assert(threw, 'garbage input throws');
+}
+
+console.log('\ndetectPauseGaps');
+{
+  const rate = 24000;
+  // 1 s: [0.2 s speech][0.15 s silence][0.35 s speech][0.1 s silence][0.2 s speech]
+  const n = rate;
+  const samples = new Float32Array(n);
+  const fill = (fromSec, toSec, amp) => {
+    for (let i = Math.floor(fromSec * rate); i < Math.floor(toSec * rate); i++) {
+      samples[i] = Math.sin((2 * Math.PI * 220 * i) / rate) * amp;
+    }
+  };
+  fill(0, 0.2, 0.5);
+  fill(0.35, 0.7, 0.5);
+  fill(0.8, 1.0, 0.5);
+  const gaps = detectPauseGaps(samples, rate);
+  assert(gaps.length === 2, 'two gaps found', JSON.stringify(gaps));
+  const [g1, g2] = gaps;
+  assertClose(g1.start / rate, 0.2, 0.03, 'gap1 start ~0.2s');
+  assertClose(g1.end / rate, 0.35, 0.03, 'gap1 end ~0.35s');
+  assertClose(g2.start / rate, 0.7, 0.03, 'gap2 start ~0.7s');
+  assertClose(g2.end / rate, 0.8, 0.03, 'gap2 end ~0.8s');
+
+  // Leading silence is engine padding, not a pause.
+  const lead = new Float32Array(rate);
+  fill.call({}, 0, 0.1, 0.5);
+  // reuse: build a clip with silence at the very start
+  const leadClip = new Float32Array(rate);
+  for (let i = Math.floor(0.1 * rate); i < rate; i++) {
+    leadClip[i] = Math.sin((2 * Math.PI * 220 * i) / rate) * 0.5;
+  }
+  const leadGaps = detectPauseGaps(leadClip, rate);
+  assert(leadGaps.length === 0, 'leading padding dropped', JSON.stringify(leadGaps));
+}
+
+console.log('\npunctuationPositions / alignPausesToPunctuation');
+{
+  const text = 'Bonjour tout le monde, ceci est un test. Très bien ?';
+  const positions = punctuationPositions(text);
+  assert(positions.length === 3, 'three marks', JSON.stringify(positions));
+  assert(positions[0].kind === 'comma', 'first is comma', positions[0].kind);
+  assert(positions[1].kind === 'period', 'second is period', positions[1].kind);
+  assert(positions[2].kind === 'question', 'third is question', positions[2].kind);
+  assert(positions[0].frac < positions[1].frac && positions[1].frac < positions[2].frac, 'ordered by position');
+
+  // Gaps centered exactly on the comma and the question fractions, plus a
+  // stray mid-word gap (kept out by the tolerance).
+  const rate = 24000;
+  const total = Math.floor(2.0 * rate);
+  const gapAt = (frac, widthSec) => ({
+    start: Math.floor((frac - widthSec / 2) * total),
+    end: Math.floor((frac + widthSec / 2) * total),
+  });
+  const gaps = [
+    gapAt(positions[0].frac, 0.04), // near comma
+    gapAt(0.5, 0.03),               // stray — far from every mark
+    gapAt(positions[2].frac, 0.04), // near question
+  ];
+  const aligned = alignPausesToPunctuation(text, gaps, total);
+  assert(aligned.length === 2, 'stray gap not aligned', JSON.stringify(aligned));
+  assert(aligned[0].kind === 'comma', 'gap1 → comma', aligned[0].kind);
+  assert(aligned[1].kind === 'question', 'gap3 → question', aligned[1].kind);
+  assert(aligned[0].gap === gaps[0] && aligned[1].gap === gaps[2], 'references the right gaps');
+
+  // A clip with no punctuation keeps nothing aligned.
+  assert(alignPausesToPunctuation('Un seul segment', gaps, total).length === 0, 'no punctuation → none');
+}
+
+console.log('\nextendPauses');
+{
+  const rate = 1000; // 1 sample = 1 ms for easy math
+  const samples = new Float32Array(1000);
+  samples.fill(0.5, 0, 400);   // speech 0–400 ms
+  // silence 400–600 ms (gap), speech 600–1000 ms
+  samples.fill(0.5, 600, 1000);
+  const extensions = [{ gap: { start: 400, end: 600 }, kind: 'comma' }];
+  const out = extendPauses(samples, rate, extensions, () => 200);
+  assert(out.length === 1200, '200 ms inserted', `len=${out.length}`);
+  // Speech before the gap untouched (0–500 ms stays put).
+  assert(out[0] === 0.5 && out[399] === 0.5, 'leading speech intact');
+  // The 200 ms of silence is inserted at the gap center (500 ms), so the
+  // whole region 400–800 ms is silent and the speech that followed the gap
+  // (input 600–1000 ms) is shifted to 800–1200 ms.
+  for (let i = 400; i < 800; i++) assert(out[i] === 0, 'extended silence is zero');
+  for (let i = 800; i < 1200; i++) assert(out[i] === 0.5, 'speech after gap intact');
+
+  const none = extendPauses(samples, rate, extensions, () => 0);
+  assert(none === samples, 'zero extra returns the original buffer');
 }
 
 console.log('\nconcatSegments / silence');

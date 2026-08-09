@@ -2,11 +2,14 @@
  * On-device TTS service — drives the native engines (OmniVoice, Qwen3-TTS,
  * Pocket TTS) and applies the user's advanced speech parameters on top.
  *
- * Pipeline (see audio-pipeline.ts): the text is split at punctuation, each
- * segment is synthesized by the loaded engine, and the segments are glued back
- * with configurable pauses, then time-stretched to the requested speed and
- * gain-adjusted. When every parameter is at its default, a single engine call
- * is made and the audio is returned untouched for the best natural prosody.
+ * Pipeline (see audio-pipeline.ts): the whole text is synthesized in ONE
+ * engine call so the model's prosody (intonation contour, coarticulation
+ * across punctuation) is preserved end to end. The advanced parameters are
+ * then applied as post-processing on that single clip: the silences the
+ * engine already placed at punctuation marks are extended to the configured
+ * pause durations, the clip is time-stretched to the requested speed
+ * (pitch-preserving WSOLA), and gain-adjusted. When every parameter is at
+ * its default the audio is returned untouched.
  */
 import * as FileSystem from 'expo-file-system/legacy';
 import ExpoQwen3TtsModule, {
@@ -18,13 +21,13 @@ import {
   DEFAULT_SPEECH_PARAMS,
   type SpeechParams,
   type WavData,
-  type PunctuationKind,
-  segmentTextWithPauses,
   isDefaultParams,
   pauseFor,
-  concatSegments,
   applyVolume,
   timeStretch,
+  detectPauseGaps,
+  alignPausesToPunctuation,
+  extendPauses,
   wavDecode,
   wavEncode,
 } from './audio-pipeline';
@@ -231,27 +234,25 @@ export class OnDeviceTTSService {
       refAudioUri = pocketDefaultReference(options.modelDir);
     }
 
-    // Pauses and speed need the split/reassemble pipeline. Volume alone can be
-    // applied to a single engine call, preserving the engine's prosody.
-    const needsPipeline = params.speed !== 1 || !isDefaultParams({ ...params, speed: 1, volume: 1 });
+    // Always ONE engine call for the whole utterance — the engine's prosody
+    // (intonation contour, coarticulation) is preserved end to end. Advanced
+    // parameters are then applied as post-processing: the pauses the engine
+    // already produced at punctuation are extended, speed is applied with
+    // pitch-preserving WSOLA, volume is a plain gain. When everything is at
+    // its default the clip is returned untouched.
+    const result = refAudioUri
+      ? await this.rawCloneVoice({
+          text: options.text,
+          referenceAudioUri: refAudioUri,
+          modelDir: options.modelDir,
+          engine: options.engine,
+          language: options.language,
+          referenceText: '',
+          quality: options.quality ?? 'best',
+        })
+      : await this.rawSynthesize(options);
 
-    if (!needsPipeline) {
-      const result = refAudioUri
-        ? await this.rawCloneVoice({
-            text: options.text,
-            referenceAudioUri: refAudioUri,
-            modelDir: options.modelDir,
-            engine: options.engine,
-            language: options.language,
-            referenceText: '',
-            quality: options.quality ?? 'best',
-          })
-        : await this.rawSynthesize(options);
-      return this.applyVolumeIfNeeded(result, options.text, params);
-    }
-
-    // Advanced parameters are set: split, synthesize per segment, re-assemble.
-    return this.synthesizeWithParams(options, refAudioUri, params);
+    return this.postProcessIfNeeded(result, options.text, params);
   }
 
   /** Clone the voice in `referenceAudioUri` and speak `text` with it. */
@@ -266,13 +267,8 @@ export class OnDeviceTTSService {
     await this.initModel(options.modelDir, options.engine);
     const params = { ...DEFAULT_SPEECH_PARAMS, ...(options.params ?? {}) };
 
-    const needsPipeline = params.speed !== 1 || !isDefaultParams({ ...params, speed: 1, volume: 1 });
-    if (!needsPipeline) {
-      const result = await this.rawCloneVoice(options);
-      return this.applyVolumeIfNeeded(result, options.text, params);
-    }
-
-    return this.cloneWithParams(options, params);
+    const result = await this.rawCloneVoice(options);
+    return this.postProcessIfNeeded(result, options.text, params);
   }
 
   // ── Raw engine calls (no post-processing — the caller owns params) ──
@@ -296,84 +292,46 @@ export class OnDeviceTTSService {
     );
   }
 
-  // ── Advanced pipeline ────────────────────────────────────────────────
-
-  private async synthesizeWithParams(
-    options: TTSOptions,
-    refAudioUri: string | undefined,
-    params: SpeechParams
-  ): Promise<Qwen3TtsResult> {
-    const segments = segmentTextWithPauses(options.text);
-    if (segments.length === 0) throw new Error('Le texte ne peut pas être vide');
-
-    return this.runSegmentedPipeline(segments, params, async (segmentText) => {
-      if (refAudioUri) {
-        return this.rawCloneVoice({
-          text: segmentText,
-          referenceAudioUri: refAudioUri,
-          modelDir: options.modelDir,
-          engine: options.engine,
-          language: options.language,
-          referenceText: '',
-          quality: options.quality ?? 'best',
-        });
-      }
-      return this.rawSynthesize({ ...options, text: segmentText });
-    });
-  }
-
-  private async cloneWithParams(options: CloneOptions, params: SpeechParams): Promise<Qwen3TtsResult> {
-    const segments = segmentTextWithPauses(options.text);
-    if (segments.length === 0) throw new Error('Le texte ne peut pas être vide');
-
-    return this.runSegmentedPipeline(segments, params, async (segmentText) => {
-      return this.rawCloneVoice({ ...options, text: segmentText });
-    });
-  }
-
-  private async runSegmentedPipeline(
-    segments: { text: string; trailing: PunctuationKind | null }[],
-    params: SpeechParams,
-    engineCall: (segmentText: string) => Promise<Qwen3TtsResult>
-  ): Promise<Qwen3TtsResult> {
-    const sampleRate = await this.getSampleRate();
-
-    const parts: Float32Array[] = [];
-    const pausesMs: number[] = [];
-
-    for (const segment of segments) {
-      const result = await engineCall(segment.text);
-      const wav = await readWavFile(result.audioUri);
-      parts.push(wav.samples);
-      pausesMs.push(segment.trailing ? pauseFor(segment.trailing, params) : 0);
-    }
-
-    let combined = concatSegments(parts, pausesMs, sampleRate);
-    if (params.speed !== 1) combined = timeStretch(combined, params.speed, sampleRate);
-    if (params.volume !== 1) combined = applyVolume(combined, params.volume);
-
-    const wavBytes = wavEncode({ samples: combined, sampleRate });
-    const outUri = await writeTempWav(wavBytes, 'synth_');
-    const fullText = segments.map((s) => s.text).join('');
-
-    return {
-      audioUri: outUri,
-      sampleRate,
-      duration: combined.length / sampleRate,
-      frameCount: combined.length,
-      text: fullText,
-    };
-  }
-
-  private async applyVolumeIfNeeded(
+  // ── Advanced parameters as post-processing on a single generation ────────
+  //
+  // The engine call above always receives the FULL text, so the prosody the
+  // model plans across the whole utterance (intonation contour, coarticulation
+  // across punctuation) survives. The parameters are applied afterwards:
+  //  1. pause durations  → extend the silences the engine already placed at
+  //     the punctuation marks (detected + aligned to the text), never invent
+  //     a pause mid-word;
+  //  2. speed            → pitch-preserving WSOLA time-stretch;
+  //  3. volume           → linear gain.
+  private async postProcessIfNeeded(
     result: Qwen3TtsResult,
     originalText: string,
     params: SpeechParams
   ): Promise<Qwen3TtsResult> {
-    if (params.volume === 1) return { ...result, text: originalText };
+    const hasPauses = !isDefaultParams({ ...params, speed: 1, volume: 1 });
+    const needsSpeed = params.speed !== 1;
+    const needsVolume = params.volume !== 1;
+
+    if (!hasPauses && !needsSpeed && !needsVolume) {
+      return { ...result, text: originalText };
+    }
 
     const wav = await readWavFile(result.audioUri);
-    const samples = applyVolume(wav.samples, params.volume);
+    let samples = wav.samples;
+
+    if (hasPauses) {
+      const gaps = detectPauseGaps(samples, wav.sampleRate);
+      const extensions = alignPausesToPunctuation(
+        originalText,
+        gaps,
+        samples.length
+      );
+      samples = extendPauses(samples, wav.sampleRate, extensions, (kind) =>
+        pauseFor(kind, params)
+      );
+    }
+    if (needsSpeed) samples = timeStretch(samples, params.speed, wav.sampleRate);
+    if (needsVolume) samples = applyVolume(samples, params.volume);
+
     const wavBytes = wavEncode({ samples, sampleRate: wav.sampleRate });
     const outUri = await writeTempWav(wavBytes, 'synth_');
     return {
