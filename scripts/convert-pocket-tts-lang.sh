@@ -42,6 +42,8 @@ VARIANT="${1:?variant e.g. french_24l}"
 LANG_ID="${2:?language id e.g. fr}"
 OUT="${3:?output dir}"
 REF_WAV="${4:-}"
+# Optional 5th arg: fp32 to skip int8 quantization (full precision export).
+PRECISION="${5:-int8}"
 
 EXPORT_DIR="${POCKET_EXPORT_DIR:?set POCKET_EXPORT_DIR to the pocket-tts-onnx-export checkout}"
 VENV_PY="${VENV_PY:?set VENV_PY to the conversion venv python}"
@@ -80,20 +82,28 @@ echo "==> [$LANG_ID] baking insert_bos_before_voice into encoder"
 "$VENV_PY" "$(dirname "$0")/bake-pocket-bos.py" \
   "$WEIGHTS" "$WORK/onnx/mimi_encoder.onnx" "$WORK/onnx/mimi_encoder.onnx"
 
-echo "==> [$LANG_ID] quantizing to int8"
-(cd "$EXPORT_DIR" && HF_TOKEN="${HF_TOKEN:-}" PYTHONIOENCODING=utf-8 PYTHONPATH=. "$VENV_PY" scripts/quantize.py \
-  --input_dir "$WORK/onnx" --output_dir "$WORK/int8" \
-  > "$WORK/quant.log" 2>&1 || { tail -30 "$WORK/quant.log"; exit 1; })
+if [ "$PRECISION" = "fp32" ]; then
+  echo "==> [$LANG_ID] fp32 mode: skipping int8 quantization"
+  SRC_FLOW="$WORK/onnx/flow_lm_flow.onnx"; SRC_MAIN="$WORK/onnx/flow_lm_main.onnx"; SRC_DEC="$WORK/onnx/mimi_decoder.onnx"
+  OUT_FLOW="$OUT/lm_flow.onnx"; OUT_MAIN="$OUT/lm_main.onnx"; OUT_DEC="$OUT/decoder.onnx"
+else
+  echo "==> [$LANG_ID] quantizing to int8"
+  (cd "$EXPORT_DIR" && HF_TOKEN="${HF_TOKEN:-}" PYTHONIOENCODING=utf-8 PYTHONPATH=. "$VENV_PY" scripts/quantize.py \
+    --input_dir "$WORK/onnx" --output_dir "$WORK/int8" \
+    > "$WORK/quant.log" 2>&1 || { tail -30 "$WORK/quant.log"; exit 1; })
+  SRC_FLOW="$WORK/int8/flow_lm_flow_int8.onnx"; SRC_MAIN="$WORK/int8/flow_lm_main_int8.onnx"; SRC_DEC="$WORK/int8/mimi_decoder_int8.onnx"
+  OUT_FLOW="$OUT/lm_flow.int8.onnx"; OUT_MAIN="$OUT/lm_main.int8.onnx"; OUT_DEC="$OUT/decoder.int8.onnx"
+fi
 
 echo "==> [$LANG_ID] converting tokenizer"
 "$VENV_PY" "$(dirname "$0")/convert-pocket-tokenizer.py" "$WORK/languages/$VARIANT/tokenizer.model" "$WORK/onnx"
 
 echo "==> [$LANG_ID] assembling final package"
 rm -rf "$OUT" && mkdir -p "$OUT/voices"
-cp "$WORK/int8/flow_lm_flow_int8.onnx"  "$OUT/lm_flow.int8.onnx"
-cp "$WORK/int8/flow_lm_main_int8.onnx"  "$OUT/lm_main.int8.onnx"
+cp "$SRC_FLOW"  "$OUT_FLOW"
+cp "$SRC_MAIN"  "$OUT_MAIN"
 cp "$WORK/onnx/mimi_encoder.onnx"       "$OUT/encoder.onnx"
-cp "$WORK/int8/mimi_decoder_int8.onnx"  "$OUT/decoder.int8.onnx"
+cp "$SRC_DEC"   "$OUT_DEC"
 cp "$WORK/onnx/text_conditioner.onnx"   "$OUT/text_conditioner.onnx"
 cp "$WORK/onnx/vocab.json" "$WORK/onnx/token_scores.json" "$OUT/"
 if [ -n "$REF_WAV" ]; then

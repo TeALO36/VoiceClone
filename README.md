@@ -81,6 +81,15 @@ pondérée par le poids réel de chaque fichier) :
   est généré avec `frames_after_eos: 8` (recommandation Kyutai) et une
   vérification de fin de phrase : si le dernier mot est tronqué, la génération
   est relancée avec un nouveau seed (jusqu'à 3 essais).
+- **Variantes fp32 « haute fidélité »** : les mêmes 5 langues sont aussi
+  publiées sous `TeALO/pocket-tts-models` dans `<lang>-fp32/` (LM + décodeur en
+  pleine précision, ~3,4× plus gros). Mesures objectives (similarité de voix
+  via l'encodeur Mimi + similarité mél-spectrale) : l'fp32 donne une identité
+  vocale plus stable sur les phrases courtes/moyennes et une variance moindre
+  d'une génération à l'autre, pour un timbre équivalent. Le moteur natif
+  détecte automatiquement la précision (`.int8.onnx` vs `.onnx`) dans le
+  dossier du modèle, donc il suffit d'installer la variante fp32 du catalogue
+  pour l'utiliser.
 - **Pocket TTS anglais** : `csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26`
   (bundle officiel).
 - OmniVoice / Qwen3-TTS : miroirs GGUF existants.

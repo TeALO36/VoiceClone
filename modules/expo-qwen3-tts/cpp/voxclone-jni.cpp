@@ -505,6 +505,9 @@ Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeInitModel(
         }
 
         // Resolve the exact filenames sherpa-onnx expects inside the model dir.
+        // int8 packages name the quantized models `*.int8.onnx`; fp32 packages
+        // (haute fidélité) drop the suffix. Prefer the int8 name when it is
+        // present so old installs keep working, else fall back to the fp32 one.
         auto file_path = [&](const char * name) -> std::string {
             return model_dir + "/" + name;
         };
@@ -513,16 +516,20 @@ Java_expo_modules_qwen3tts_ExpoQwen3TtsModule_nativeInitModel(
             if (f) { std::fclose(f); return true; }
             return false;
         };
+        auto resolve = [&](const char * int8_name, const char * fp32_name) -> std::string {
+            std::string p = file_path(int8_name);
+            return exists(p) ? p : file_path(fp32_name);
+        };
 
         SherpaOnnxOfflineTtsConfig config;
         std::memset(&config, 0, sizeof(config));
         config.model.num_threads = 2;
         config.model.debug = 0;
         config.model.provider = "cpu";
-        config.model.pocket.lm_flow            = strdup(file_path("lm_flow.int8.onnx").c_str());
-        config.model.pocket.lm_main            = strdup(file_path("lm_main.int8.onnx").c_str());
+        config.model.pocket.lm_flow            = strdup(resolve("lm_flow.int8.onnx", "lm_flow.onnx").c_str());
+        config.model.pocket.lm_main            = strdup(resolve("lm_main.int8.onnx", "lm_main.onnx").c_str());
         config.model.pocket.encoder            = strdup(file_path("encoder.onnx").c_str());
-        config.model.pocket.decoder            = strdup(file_path("decoder.int8.onnx").c_str());
+        config.model.pocket.decoder            = strdup(resolve("decoder.int8.onnx", "decoder.onnx").c_str());
         config.model.pocket.text_conditioner   = strdup(file_path("text_conditioner.onnx").c_str());
         config.model.pocket.vocab_json         = strdup(file_path("vocab.json").c_str());
         config.model.pocket.token_scores_json  = strdup(file_path("token_scores.json").c_str());

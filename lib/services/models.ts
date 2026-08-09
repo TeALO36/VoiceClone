@@ -39,6 +39,10 @@ export function formatBytes(bytes: number): string {
 const POCKET_LANG_BASE =
   'https://huggingface.co/TeALO/pocket-tts-models/resolve/main';
 
+// fp32 (haute fidélité) packages live under `<lang>-fp32/` in the same repo.
+const POCKET_LANG_FP32_BASE =
+  'https://huggingface.co/TeALO/pocket-tts-models/resolve/main';
+
 // Exact byte sizes of every converted package, read from the release assets.
 // fr is the 24-layer model (~4× the LM of the 6-layer base variants used for
 // the other languages). Used for a weight-based progress bar (a 305 MB file
@@ -51,12 +55,30 @@ const POCKET_SHARED_SIZES = {
   textConditioner: 16_388_344,
 };
 
+// fp32 variants — same packages without int8 quantization (only lm_main,
+// lm_flow and decoder differ; encoder + text_conditioner were already fp32).
+// Measured from the converted packages hosted under `<lang>-fp32/`.
+const POCKET_SHARED_FP32_SIZES = {
+  lmFlow: 39_097_095,
+  encoder: 39_752_071,
+  decoder: 41_471_926,
+  textConditioner: 16_388_344,
+};
+
 const POCKET_LANG_SIZES: Record<string, { lmMain: number; vocab: number; scores: number; voice: number }> = {
   fr: { lmMain: 305_144_125, vocab: 74_240, scores: 128_500, voice: 480_078 },
   de: { lmMain: 76_341_079, vocab: 73_904, scores: 128_037, voice: 480_078 },
   pt: { lmMain: 76_341_079, vocab: 75_062, scores: 129_173, voice: 480_078 },
   it: { lmMain: 76_341_079, vocab: 74_145, scores: 128_076, voice: 354_318 },
   es: { lmMain: 76_341_079, vocab: 74_962, scores: 129_011, voice: 458_622 },
+};
+
+const POCKET_LANG_FP32_SIZES: Record<string, { lmMain: number; vocab: number; scores: number; voice: number }> = {
+  fr: { lmMain: 1_210_441_908, vocab: 74_240, scores: 128_500, voice: 480_078 },
+  de: { lmMain: 302_742_149, vocab: 73_904, scores: 128_037, voice: 480_078 },
+  pt: { lmMain: 302_742_149, vocab: 75_062, scores: 129_173, voice: 480_078 },
+  it: { lmMain: 302_742_149, vocab: 74_145, scores: 128_076, voice: 354_318 },
+  es: { lmMain: 302_742_149, vocab: 74_962, scores: 129_011, voice: 458_622 },
 };
 
 const POCKET_LANG_ENTRIES: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
@@ -110,28 +132,94 @@ const POCKET_LANG_ENTRIES: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
     size: pocketLangSize('es'),
     languages: ['Español'],
   },
+  // fp32 (haute fidélité) variants of the five languages. Same converted
+  // packages with the LM/decoder kept in full precision — measurably more
+  // stable voice identity on short/medium phrases (see scripts/convert-*
+  // and the quality comparison in the repo notes), at ~3.4× the download
+  // size. The native loader picks the fp32 filenames (no `.int8` suffix)
+  // when they are present in the model dir.
+  {
+    id: 'pocket-tts-fr-fp32',
+    name: 'Pocket TTS — Français (fp32)',
+    description: 'Pocket TTS (Kyutai) en français, précision complète — voix plus stable, ~1.3 Go',
+    ggufFiles: pocketLangFiles(POCKET_LANG_FP32_BASE, 'fr', true),
+    type: 'pocket',
+    langId: 'fr',
+    size: pocketLangSize('fr', true),
+    languages: ['Français'],
+  },
+  {
+    id: 'pocket-tts-de-fp32',
+    name: 'Pocket TTS — Deutsch (fp32)',
+    description: 'Pocket TTS (Kyutai) auf Deutsch, volle Präzision — stabilere Stimme, ~470 MB',
+    ggufFiles: pocketLangFiles(POCKET_LANG_FP32_BASE, 'de', true),
+    type: 'pocket',
+    langId: 'de',
+    size: pocketLangSize('de', true),
+    languages: ['Deutsch'],
+  },
+  {
+    id: 'pocket-tts-pt-fp32',
+    name: 'Pocket TTS — Português (fp32)',
+    description: 'Pocket TTS (Kyutai) em português, precisão total — voz mais estável, ~470 MB',
+    ggufFiles: pocketLangFiles(POCKET_LANG_FP32_BASE, 'pt', true),
+    type: 'pocket',
+    langId: 'pt',
+    size: pocketLangSize('pt', true),
+    languages: ['Português'],
+  },
+  {
+    id: 'pocket-tts-it-fp32',
+    name: 'Pocket TTS — Italiano (fp32)',
+    description: 'Pocket TTS (Kyutai) in italiano, precisione completa — voce più stabile, ~470 MB',
+    ggufFiles: pocketLangFiles(POCKET_LANG_FP32_BASE, 'it', true),
+    type: 'pocket',
+    langId: 'it',
+    size: pocketLangSize('it', true),
+    languages: ['Italiano'],
+  },
+  {
+    id: 'pocket-tts-es-fp32',
+    name: 'Pocket TTS — Español (fp32)',
+    description: 'Pocket TTS (Kyutai) en español, precisión completa — voz más estable, ~470 MB',
+    ggufFiles: pocketLangFiles(POCKET_LANG_FP32_BASE, 'es', true),
+    type: 'pocket',
+    langId: 'es',
+    size: pocketLangSize('es', true),
+    languages: ['Español'],
+  },
 ];
 
-function pocketLangFiles(base: string, lang: string) {
-  const s = POCKET_LANG_SIZES[lang] ?? POCKET_LANG_SIZES.de;
+function pocketLangFiles(base: string, lang: string, fp32 = false) {
+  const s = fp32
+    ? (POCKET_LANG_FP32_SIZES[lang] ?? POCKET_LANG_FP32_SIZES.fr)
+    : (POCKET_LANG_SIZES[lang] ?? POCKET_LANG_SIZES.de);
+  const shared = fp32 ? POCKET_SHARED_FP32_SIZES : POCKET_SHARED_SIZES;
+  const lmFlow = fp32 ? 'lm_flow.onnx' : 'lm_flow.int8.onnx';
+  const lmMain = fp32 ? 'lm_main.onnx' : 'lm_main.int8.onnx';
+  const decoder = fp32 ? 'decoder.onnx' : 'decoder.int8.onnx';
+  const dir = fp32 ? `${lang}-fp32` : lang;
   return [
-    { name: 'lm_flow.int8.onnx', url: `${base}/${lang}/lm_flow.int8.onnx`, expectedSize: POCKET_SHARED_SIZES.lmFlow },
-    { name: 'lm_main.int8.onnx', url: `${base}/${lang}/lm_main.int8.onnx`, expectedSize: s.lmMain },
-    { name: 'encoder.onnx', url: `${base}/${lang}/encoder.onnx`, expectedSize: POCKET_SHARED_SIZES.encoder },
-    { name: 'decoder.int8.onnx', url: `${base}/${lang}/decoder.int8.onnx`, expectedSize: POCKET_SHARED_SIZES.decoder },
-    { name: 'text_conditioner.onnx', url: `${base}/${lang}/text_conditioner.onnx`, expectedSize: POCKET_SHARED_SIZES.textConditioner },
-    { name: 'vocab.json', url: `${base}/${lang}/vocab.json`, expectedSize: s.vocab },
-    { name: 'token_scores.json', url: `${base}/${lang}/token_scores.json`, expectedSize: s.scores },
-    { name: 'voices/bria.wav', url: `${base}/${lang}/default.wav`, expectedSize: s.voice },
-    { name: 'voices/loona.wav', url: `${base}/${lang}/default.wav`, expectedSize: s.voice },
+    { name: lmFlow, url: `${base}/${dir}/${lmFlow}`, expectedSize: shared.lmFlow },
+    { name: lmMain, url: `${base}/${dir}/${lmMain}`, expectedSize: s.lmMain },
+    { name: 'encoder.onnx', url: `${base}/${dir}/encoder.onnx`, expectedSize: shared.encoder },
+    { name: decoder, url: `${base}/${dir}/${decoder}`, expectedSize: shared.decoder },
+    { name: 'text_conditioner.onnx', url: `${base}/${dir}/text_conditioner.onnx`, expectedSize: shared.textConditioner },
+    { name: 'vocab.json', url: `${base}/${dir}/vocab.json`, expectedSize: s.vocab },
+    { name: 'token_scores.json', url: `${base}/${dir}/token_scores.json`, expectedSize: s.scores },
+    { name: 'voices/bria.wav', url: `${base}/${dir}/default.wav`, expectedSize: s.voice },
+    { name: 'voices/loona.wav', url: `${base}/${dir}/default.wav`, expectedSize: s.voice },
   ];
 }
 
-function pocketLangSize(lang: string): number {
-  const s = POCKET_LANG_SIZES[lang] ?? POCKET_LANG_SIZES.de;
+function pocketLangSize(lang: string, fp32 = false): number {
+  const s = fp32
+    ? (POCKET_LANG_FP32_SIZES[lang] ?? POCKET_LANG_FP32_SIZES.fr)
+    : (POCKET_LANG_SIZES[lang] ?? POCKET_LANG_SIZES.de);
+  const shared = fp32 ? POCKET_SHARED_FP32_SIZES : POCKET_SHARED_SIZES;
   return (
-    POCKET_SHARED_SIZES.lmFlow + s.lmMain + POCKET_SHARED_SIZES.encoder +
-    POCKET_SHARED_SIZES.decoder + POCKET_SHARED_SIZES.textConditioner +
+    shared.lmFlow + s.lmMain + shared.encoder +
+    shared.decoder + shared.textConditioner +
     s.vocab + s.scores + s.voice + s.voice
   );
 }
