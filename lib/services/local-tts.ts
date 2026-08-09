@@ -8,7 +8,6 @@
  * gain-adjusted. When every parameter is at its default, a single engine call
  * is made and the audio is returned untouched for the best natural prosody.
  */
-import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import ExpoQwen3TtsModule, {
   QUALITY_STEPS,
@@ -438,28 +437,48 @@ async function writeTempWav(wavBytes: Uint8Array, prefix: string): Promise<strin
   return uri;
 }
 
+// Pure-JS base64 codec. The global `Buffer` polyfill is not reliably present
+// on Hermes/Android ("ReferenceError: Property 'Buffer' doesn't exist"), and
+// atob/btoa behave inconsistently across engines for multi-hundred-KB strings.
+// A hand-rolled codec over Uint8Array is deterministic everywhere and fast
+// enough for the WAV sizes involved here (a few hundred KB).
+const B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const B64_LOOKUP: Record<string, number> = {};
+for (let i = 0; i < B64_CHARS.length; i++) B64_LOOKUP[B64_CHARS[i]] = i;
+
 function base64ToBytes(base64: string): Uint8Array {
-  if (Platform.OS === 'web' && typeof atob === 'function') {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    return bytes;
+  // Strip padding and any trailing whitespace before decoding.
+  let end = base64.length;
+  while (end > 0 && (base64[end - 1] === '=' || base64[end - 1] === '\n' || base64[end - 1] === '\r')) end--;
+  const out = new Uint8Array(Math.floor((end * 3) / 4));
+  let acc = 0;
+  let bits = 0;
+  let o = 0;
+  for (let i = 0; i < end; i++) {
+    const v = B64_LOOKUP[base64[i]];
+    if (v === undefined) continue; // tolerate stray whitespace inside
+    acc = (acc << 6) | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out[o++] = (acc >> bits) & 0xff;
+    }
   }
-  // Hermes / React Native: Buffer is available.
-  const buffer = Buffer.from(base64, 'base64');
-  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  return o === out.length ? out : out.subarray(0, o);
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
-  if (Platform.OS === 'web' && typeof btoa === 'function') {
-    let binary = '';
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {
-      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-    }
-    return btoa(binary);
+  let result = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const b0 = bytes[i];
+    const b1 = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    const b2 = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    result += B64_CHARS[b0 >> 2];
+    result += B64_CHARS[((b0 & 3) << 4) | (b1 >> 4)];
+    result += i + 1 < bytes.length ? B64_CHARS[((b1 & 15) << 2) | (b2 >> 6)] : '=';
+    result += i + 2 < bytes.length ? B64_CHARS[b2 & 63] : '=';
   }
-  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
+  return result;
 }
 
 export const onDeviceTts = new OnDeviceTTSService();

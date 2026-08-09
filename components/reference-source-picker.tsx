@@ -113,6 +113,11 @@ export function ReferenceSourcePicker({
                   ? `Prêt · ${reference.duration.toFixed(1)} s · ${SOURCE_LABEL[reference.sourceType]}`
                   : SOURCE_LABEL[reference.sourceType]}
             </Text>
+            {!isConverting && reference.duration != null && reference.duration < 3 && (
+              <Text className="text-xs text-warning mt-0.5">
+                ⚠️ Échantillon court — enregistrez plutôt 3 à 10 s pour une voix plus fidèle.
+              </Text>
+            )}
           </View>
         </View>
         <Pressable onPress={onRemove} className="bg-error/10 border border-error/30 rounded-lg px-3 py-1.5">

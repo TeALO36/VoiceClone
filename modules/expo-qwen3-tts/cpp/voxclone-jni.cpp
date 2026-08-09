@@ -19,6 +19,8 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <chrono>
+#include <algorithm>
 
 #include "omnivoice.h"
 #include "qwen3tts_c_api.h"
@@ -357,13 +359,57 @@ jint run_synthesis(JNIEnv * env,
         cfg.reference_text      = ref_text.empty() ? nullptr : ref_text.c_str();
         if (jSteps > 0) cfg.num_steps = (int32_t)jSteps;   // JS maps quality -> 1/2/4
 
-        const SherpaOnnxGeneratedAudio * audio =
-            g_pocket_api.generate(g_pocket, text.c_str(), &cfg, nullptr, nullptr);
-        if (!audio || audio->n <= 0) {
-            g_last_error = "Pocket TTS generation failed";
-            if (audio) g_pocket_api.free_audio(audio);
-            LOGE("%s", g_last_error.c_str());
-            return -1;
+        // The 24-layer French model is a preview export with jittery EOS
+        // detection: sherpa's default (3 frames after EOS) often cuts the tail
+        // of the last word and shortens the whole utterance. Kyutai's config
+        // for french_24l sets model_recommended_frames_after_eos: 8, so the
+        // French model gets that bump. The base models (en/de/pt/it/es) are
+        // calibrated for the default and are left untouched.
+        const bool fr_model = (lang.compare(0, 2, "fr") == 0);
+
+        // sherpa seeds its sampler from `extra.seed` (-1 = random each call).
+        // Generation is stochastic, so when EOS fires mid-word the truncated
+        // result is retried with a fresh seed until the utterance ends cleanly.
+        auto fresh_seed = []() -> int {
+            static uint64_t counter = 0;
+            counter++;
+            const uint64_t t = (uint64_t)std::chrono::steady_clock::now()
+                                   .time_since_epoch().count();
+            return (int)((t ^ (counter * 0x9E3779B97F4A7C15ULL)) & 0x7FFFFFFF);
+        };
+
+        const SherpaOnnxGeneratedAudio * audio = nullptr;
+        const int kMaxAttempts = 3;
+        for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
+            std::string extra_json =
+                "{\"seed\": \"" + std::to_string(fresh_seed()) + "\"";
+            if (fr_model) extra_json += ", \"frames_after_eos\": \"8\"";
+            extra_json += "}";
+            cfg.extra = extra_json.c_str();   // valid until the next generate()
+
+            if (audio) { g_pocket_api.free_audio(audio); audio = nullptr; }
+            audio = g_pocket_api.generate(g_pocket, text.c_str(), &cfg,
+                                          nullptr, nullptr);
+            if (!audio || audio->n <= 0) {
+                g_last_error = "Pocket TTS generation failed";
+                if (audio) g_pocket_api.free_audio(audio);
+                LOGE("%s", g_last_error.c_str());
+                return -1;
+            }
+
+            // Truncation check: if the final ~80 ms still carries speech-level
+            // energy, EOS fired while the last word was sounding. Retry.
+            const int32_t sr = audio->sample_rate > 0 ? audio->sample_rate : 24000;
+            const int32_t tail = (int32_t)std::min<size_t>(audio->n, (size_t)(sr * 0.08));
+            float peak = 0.0f;
+            for (int32_t i = audio->n - tail; i < audio->n; ++i) {
+                const float v = audio->samples[i] < 0 ? -audio->samples[i]
+                                                      : audio->samples[i];
+                if (v > peak) peak = v;
+            }
+            if (peak < 0.02f || attempt == kMaxAttempts - 1) break;
+            LOGD("Pocket: truncated ending (tail peak %.3f), retrying %d/%d",
+                 peak, attempt + 1, kMaxAttempts);
         }
 
         const bool ok = g_pocket_api.write_wave(audio->samples, audio->n,

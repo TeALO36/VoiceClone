@@ -72,10 +72,17 @@ conversion audio/vidéo par AVFoundation.
 ## Installation des modèles dans l'app
 
 Les modèles se téléchargent depuis l'onglet **Modèles** (fichiers individuels,
-reprise de téléchargement, vérification d'espace disque) :
+reprise de téléchargement, vérification d'espace disque, barre de progression
+pondérée par le poids réel de chaque fichier) :
 
-- Pocket TTS : miroir HuggingFace `csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26`
-  (5 ONNX + vocab + token_scores + 2 voix de référence intégrées).
+- **Pocket TTS multilingue (fr, de, pt, it, es)** : `TeALO/pocket-tts-models`
+  sur HuggingFace — checkpoints Kyutai convertis en ONNX int8 avec
+  `insert_bos_before_voice` fusionné dans l'encodeur. Le français (24 couches)
+  est généré avec `frames_after_eos: 8` (recommandation Kyutai) et une
+  vérification de fin de phrase : si le dernier mot est tronqué, la génération
+  est relancée avec un nouveau seed (jusqu'à 3 essais).
+- **Pocket TTS anglais** : `csukuangfj2/sherpa-onnx-pocket-tts-int8-2026-01-26`
+  (bundle officiel).
 - OmniVoice / Qwen3-TTS : miroirs GGUF existants.
 
 ## Architecture
