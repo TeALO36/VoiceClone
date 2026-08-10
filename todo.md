@@ -96,3 +96,9 @@
 - [x] Profils : bouton « Utiliser » sur chaque carte → bascule vers l'onglet Clonage avec le profil pré-sélectionné (param `?profileId=`)
 - [x] Écran de consentement au premier lancement : texte professionnel (responsabilité, usages interdits, « en l'état »), boutons « J'accepte » / « Refuser et quitter » (quitte l'app). Persisté dans AsyncStorage
 - [x] Réglages : interrupteur « Consentement & responsabilité » — le retirer bloque (web/iOS) ou ferme (Android) l'app jusqu'à un nouvel accord — testé sur émulateur (gate affiché → accepter → app ; toggle off → relance → gate de nouveau)
+
+## v4.3.8 — Style par texte & capacités des moteurs
+- [x] Vérifier dans le code natif quels moteurs acceptent des instructions de style/émotion : OmniVoice (attributs de voix : genre, âge, hauteur, chuchotement, accent — vocabulaire voice-design), Qwen3-TTS (instruct ignoré par notre portage local : seul texte + embedding de voix alimentent le transformer), Pocket TTS (aucun)
+- [x] Champ « Style & intonation (texte) » dans Synthèse pour OmniVoice : saisie libre + chips rapides + validation JS contre le vocabulaire voice-design (avertissement avant la synthèse), prioritaire sur le preset
+- [x] Gestionnaire de modèles : badges « ✍️ Style par texte : oui/non » + « ✅ Atouts » / « ⚠️ Limites » sur chaque moteur (vérifiés sur le web)
+- [x] README : tableau des moteurs enrichi (colonne Style par texte + note honnête sur l'absence d'émotion progressive)

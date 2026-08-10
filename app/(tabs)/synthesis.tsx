@@ -7,7 +7,13 @@ import { ProfilePicker } from '@/components/profile-picker';
 import { AdvancedParamsEditor } from '@/components/advanced-params-editor';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
-import { VOICE_PRESETS, getLanguagesForModel, resolvePresetVoice } from '@/lib/services/local-tts';
+import {
+  VOICE_PRESETS,
+  getLanguagesForModel,
+  resolvePresetVoice,
+  OMNIVOICE_STYLE_CHIPS,
+  validateOmniVoiceInstruct,
+} from '@/lib/services/local-tts';
 import type { VoiceProfile } from '@/lib/services/profiles';
 import { DEFAULT_SPEECH_PARAMS, type SpeechParams } from '@/lib/services/audio-pipeline';
 
@@ -28,6 +34,9 @@ export default function SynthesisScreen() {
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [profileVoice, setProfileVoice] = useState<VoiceProfile | null>(null);
   const [params, setParams] = useState<SpeechParams>({ ...DEFAULT_SPEECH_PARAMS });
+  // OmniVoice voice-design description (gender, age, pitch, whisper, accent).
+  const [styleInstruct, setStyleInstruct] = useState('');
+  const styleCheck = validateOmniVoiceInstruct(styleInstruct);
 
   const activeModel =
     installedModels.find((m) => m.id === selectedModelId) ?? installedModels[0];
@@ -93,12 +102,19 @@ export default function SynthesisScreen() {
       }
 
       const preset = resolvePresetVoice(model.type, presetId, modelDir);
+      // A typed OmniVoice style description overrides the preset's built-in
+      // instruct string (it is validated in JS against the voice-design
+      // vocabulary; a free-style instruction is not silently sent).
+      const customInstruct =
+        model.type === 'omnivoice' && styleInstruct.trim() && styleCheck.ok
+          ? styleInstruct.trim()
+          : undefined;
       return ttsEngine.synthesize({
         text: spoken,
         modelDir,
         engine: model.type,
         language,
-        instruct: preset?.instruct,
+        instruct: customInstruct ?? preset?.instruct,
         referenceAudioUri: preset?.referenceAudioUri,
         params: chosenParams,
       });
@@ -233,6 +249,78 @@ export default function SynthesisScreen() {
                   </Pressable>
                 )}
               />
+            )}
+          </View>
+        )}
+
+        {/* Style & intonation — OmniVoice voice-design instructions */}
+        {!profileVoice?.reference && activeModel?.type === 'omnivoice' && (
+          <View className="px-6 mb-6">
+            <Text className="text-sm font-semibold text-foreground mb-1">
+              ✍️ Style & intonation (texte)
+            </Text>
+            <Text className="text-xs text-muted mb-3">
+              Décrivez la voix avec des attributs séparés par des virgules :
+              genre, âge, hauteur de voix, chuchotement ou accent. Le style
+              s&apos;applique à toute la phrase (pas d&apos;émotion progressive).
+            </Text>
+            <TextInput
+              value={styleInstruct}
+              onChangeText={setStyleInstruct}
+              placeholder="Ex : female, young adult, high pitch, whisper"
+              placeholderTextColor={colors.muted}
+              multiline
+              className="bg-surface border border-border rounded-lg p-3 text-foreground mb-2"
+              style={{ textAlignVertical: 'top', minHeight: 60 }}
+            />
+            <View className="flex-row gap-1 flex-wrap mb-2">
+              {OMNIVOICE_STYLE_CHIPS.map((chip) => {
+                const active = styleInstruct
+                  .split(',')
+                  .map((s) => s.trim().toLowerCase())
+                  .includes(chip);
+                return (
+                  <Pressable
+                    key={chip}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      const parts = styleInstruct
+                        .split(',')
+                        .map((s) => s.trim())
+                        .filter((s) => s.toLowerCase() !== chip);
+                      if (!active) parts.push(chip);
+                      setStyleInstruct(parts.join(', '));
+                    }}
+                    style={({ pressed }) => [
+                      {
+                        backgroundColor: active ? colors.primary + '20' : colors.surface,
+                        borderColor: active ? colors.primary : colors.border,
+                        opacity: pressed ? 0.8 : 1,
+                      },
+                    ]}
+                    className="rounded-full border px-3 py-1.5"
+                  >
+                    <Text
+                      className="text-xs font-medium"
+                      style={{ color: active ? colors.primary : colors.foreground }}
+                    >
+                      {chip}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {styleInstruct.trim() !== '' && !styleCheck.ok && (
+              <View className="bg-warning/10 rounded-lg p-3 border border-warning/30">
+                <Text className="text-xs text-warning font-medium">
+                  ⚠️ Attribut(s) non reconnus : {styleCheck.unsupported.join(', ')}
+                </Text>
+                <Text className="text-xs text-muted mt-1">
+                  OmniVoice n&apos;accepte qu&apos;une liste d&apos;attributs (genre, âge,
+                  hauteur, chuchotement, accent). Les termes non reconnus sont
+                  ignorés à la synthèse.
+                </Text>
+              </View>
             )}
           </View>
         )}

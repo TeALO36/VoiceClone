@@ -17,6 +17,72 @@ export interface TTSModel {
   langId?: string;
   isInstalled: boolean;
   downloadedAt?: number;
+  /** What the engine can and cannot do (shown in the model manager). */
+  capabilities?: ModelCapabilities;
+}
+
+export interface ModelCapabilities {
+  /**
+   * Free-text style instructions:
+   *  - 'attributes' → OmniVoice voice-design vocabulary (gender, age, pitch,
+   *    whisper, accent) applied to the whole utterance;
+   *  - 'none' → the engine has no style/emotion instruction channel.
+   */
+  instruct: 'attributes' | 'none';
+  strengths: string[];
+  limitations: string[];
+}
+
+/**
+ * Honest capabilities of each engine, verified against the native code:
+ *  - OmniVoice: `--instruct` maps to a fixed voice-design vocabulary
+ *    (gender/age/pitch/whisper/accents) — a fixed voice style, not a
+ *    time-varying emotion description;
+ *  - Qwen3-TTS: the official model follows style instructions, but this
+ *    embedded port only feeds text + a speaker embedding to the transformer
+ *    (no instruct channel wired);
+ *  - Pocket TTS: voice comes from the reference sample only.
+ */
+export function capabilitiesFor(model: {
+  type: TTSModel['type'];
+}): ModelCapabilities {
+  switch (model.type) {
+    case 'omnivoice':
+      return {
+        instruct: 'attributes',
+        strengths: [
+          'Clonage zéro-shot (une voix peut être imitée à partir d’un court extrait)',
+          '646+ langues',
+          'Style vocal décrit en texte : genre, âge, hauteur de voix, chuchotement, accent',
+        ],
+        limitations: [
+          'Style fixe sur toute la phrase — pas d’évolution d’émotion en cours d’audio (ex. « d’abord triste, puis elle rit »)',
+          'Le vocabulaire de style est limité à une liste d’attributs (pas de phrases libres)',
+        ],
+      };
+    case 'qwen3':
+      return {
+        instruct: 'none',
+        strengths: [
+          'Clonage sans transcription (aucun texte requis pour l’échantillon)',
+          'Le plus fidèle pour reproduire une voix',
+        ],
+        limitations: [
+          'Pas de contrôle d’émotion/intonation par texte dans cette version embarquée (le modèle officiel le permet, pas notre portage local)',
+        ],
+      };
+    case 'pocket':
+      return {
+        instruct: 'none',
+        strengths: [
+          'Très rapide sur CPU (100M de paramètres)',
+          'Léger et économique en batterie',
+        ],
+        limitations: [
+          'La voix est celle de l’échantillon de référence (pas de style modifiable par texte)',
+        ],
+      };
+  }
 }
 
 export interface ModelState {
@@ -461,11 +527,12 @@ class ModelsService {
         ...m,
         isInstalled: true,
         downloadedAt: records[m.id]?.downloadedAt,
+        capabilities: capabilitiesFor(m),
       }));
 
     const available: TTSModel[] = MODEL_CATALOG
       .filter((m) => !installedIds.has(m.id))
-      .map((m) => ({ ...m, isInstalled: false }));
+      .map((m) => ({ ...m, isInstalled: false, capabilities: capabilitiesFor(m) }));
 
     return { installed, available };
   }

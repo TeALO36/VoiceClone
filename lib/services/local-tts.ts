@@ -154,6 +154,62 @@ const OMNIVOICE_INSTRUCT: Record<string, string> = {
   'narrator': 'male adult narrator calm',
 };
 
+// ─── OmniVoice style instructions ───
+//
+// OmniVoice's `instruct` is not free prose: the native layer validates it
+// against a fixed voice-design vocabulary (see omnivoice-cpp/src/voice-
+// design.h). Each comma-separated item must be one of these attributes, and
+// at most one per category (gender, age, pitch, whisper, accent, dialect).
+// The same set is mirrored here so the UI can warn before the native call
+// instead of failing with a cryptic engine error. Note that the vocabulary
+// contains NO emotion words — the style is a fixed voice colour for the whole
+// utterance, not a time-varying emotional arc.
+export const OMNIVOICE_STYLE_VOCAB = new Set([
+  // gender
+  'male', 'female',
+  // age
+  'child', 'teenager', 'young adult', 'middle-aged', 'elderly',
+  // pitch
+  'very low pitch', 'low pitch', 'moderate pitch', 'high pitch', 'very high pitch',
+  // style
+  'whisper',
+  // accents (English only)
+  'american accent', 'british accent', 'australian accent', 'chinese accent',
+  'canadian accent', 'indian accent', 'korean accent', 'portuguese accent',
+  'russian accent', 'japanese accent',
+  // dialects (Chinese only)
+  '河南话', '陕西话', '四川话', '贵州话', '云南话', '桂林话',
+  '济南话', '石家庄话', '甘肃话', '宁夏话', '青岛话', '东北话',
+]);
+
+/** Quick-pick chips offered under the style field (all in the vocabulary). */
+export const OMNIVOICE_STYLE_CHIPS = [
+  'whisper',
+  'female',
+  'male',
+  'high pitch',
+  'low pitch',
+  'young adult',
+  'elderly',
+  'british accent',
+  'american accent',
+];
+
+/**
+ * Check a comma-separated OmniVoice style string against the voice-design
+ * vocabulary. Returns the unsupported items so the UI can point at them.
+ */
+export function validateOmniVoiceInstruct(
+  value: string
+): { ok: boolean; unsupported: string[] } {
+  const items = value
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const unsupported = items.filter((item) => !OMNIVOICE_STYLE_VOCAB.has(item));
+  return { ok: unsupported.length === 0, unsupported };
+}
+
 /** Bundled reference voices shipped with the Pocket TTS model. */
 const POCKET_PRESET_FILES: Record<string, string> = {
   'female-neutral': 'voices/bria.wav',

@@ -94,6 +94,39 @@ export default function ModelsManagerScreen() {
           )}
         </View>
 
+        {/* Capabilities — atouts & limites de chaque moteur */}
+        {model.capabilities && (
+          <View className="mb-3">
+            <View className="mb-2">
+              {model.capabilities.instruct === 'attributes' ? (
+                <View className="bg-primary/15 self-start rounded-full px-2 py-1">
+                  <Text className="text-xs text-primary font-semibold">
+                    ✍️ Style par texte : oui (attributs de voix)
+                  </Text>
+                </View>
+              ) : (
+                <View className="bg-warning/15 self-start rounded-full px-2 py-1">
+                  <Text className="text-xs text-warning font-semibold">
+                    ✍️ Style par texte : non
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Text className="text-xs font-semibold text-success mb-1">✅ Atouts</Text>
+            {model.capabilities.strengths.map((point) => (
+              <Text key={point} className="text-xs text-muted leading-4 mb-0.5">
+                • {point}
+              </Text>
+            ))}
+            <Text className="text-xs font-semibold text-warning mb-1 mt-2">⚠️ Limites</Text>
+            {model.capabilities.limitations.map((point) => (
+              <Text key={point} className="text-xs text-muted leading-4 mb-0.5">
+                • {point}
+              </Text>
+            ))}
+          </View>
+        )}
+
         {/* Download Progress */}
         {isDownloading && (
           <View className="mb-3">

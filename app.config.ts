@@ -6,7 +6,7 @@ const scheme = "voxclone";
 const config: ExpoConfig = {
   name: "VoiceClone",
   slug: "vox-clone-mobile",
-  version: "4.3.7",
+  version: "4.3.8",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: scheme,
@@ -20,7 +20,7 @@ const config: ExpoConfig = {
       }
   },
   android: {
-    versionCode: 10,
+    versionCode: 11,
     adaptiveIcon: {
       backgroundColor: "#E6F4FE",
       foregroundImage: "./assets/images/android-icon-foreground.png",

@@ -4,11 +4,17 @@ Synthèse vocale et **clonage de voix 100 % local** — aucun serveur, aucune AP
 
 Trois moteurs on-device :
 
-| Moteur | Taille | Clonage | Langues | Notes |
-|--------|--------|---------|---------|-------|
-| **Pocket TTS (Kyutai)** | ~190 Mo (fr : ~380 Mo) | Zéro-shot | **en, fr, de, pt, it, es** | Modèle 2026, très rapide sur CPU, via sherpa-onnx |
-| **OmniVoice** | ~630 Mo | Zéro-shot | 646+ | Instruction de voix libre |
-| **Qwen3-TTS 0.6B** | ~1,5 Go | Zéro-shot | 10 | Le plus fidèle, sans transcription |
+| Moteur | Taille | Clonage | Langues | Style par texte | Notes |
+|--------|--------|---------|---------|-----------------|-------|
+| **Pocket TTS (Kyutai)** | ~190 Mo (fr : ~380 Mo) | Zéro-shot | **en, fr, de, pt, it, es** | ❌ | Modèle 2026, très rapide sur CPU, via sherpa-onnx — la voix est celle de l'échantillon de référence |
+| **OmniVoice** | ~630 Mo | Zéro-shot | 646+ | ✅ attributs de voix (genre, âge, hauteur, chuchotement, accent) | Style fixe sur toute la phrase — pas d'évolution d'émotion en cours d'audio |
+| **Qwen3-TTS 0.6B** | ~1,5 Go | Zéro-shot | 10 | ❌ (dans cette version embarquée) | Le plus fidèle, sans transcription — le modèle officiel suit les instructions de style, pas notre portage local |
+
+> **Style & émotion par texte** : aucun des trois moteurs embarqués ne sait
+> faire évoluer l'émotion en cours d'audio (ex. « d'abord triste, puis elle
+> pleure, puis elle rit »). OmniVoice est le seul à accepter une description
+> textuelle, limitée à une liste d'attributs de voix (voir l'onglet Modèles
+> pour les atouts et limites de chaque moteur).
 
 ## 📥 Télécharger et installer (Android)
 
