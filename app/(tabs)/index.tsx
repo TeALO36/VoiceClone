@@ -1,5 +1,6 @@
 import { ScrollView, Text, View, Pressable, FlatList } from 'react-native';
 import { ScreenContainer } from '@/components/screen-container';
+import { UpdateCard } from '@/components/update-card';
 import { useTTS } from '@/lib/context/tts-context';
 import { useColors } from '@/hooks/use-colors';
 import { useRouter } from 'expo-router';
@@ -23,9 +24,12 @@ export default function HomeScreen() {
       <ScrollView contentContainerStyle={{ flexGrow: 1, paddingBottom: 100 }}>
         {/* Header */}
         <View className="px-6 pt-8 pb-6">
-          <Text className="text-4xl font-bold text-foreground mb-2">VoxClone Pro</Text>
+          <Text className="text-4xl font-bold text-foreground mb-2">VoiceClone</Text>
           <Text className="text-base text-muted">Synthèse vocale & clonage de voix</Text>
         </View>
+
+        {/* Update */}
+        <UpdateCard />
 
         {/* Quick Actions */}
         <View className="px-6 gap-3 mb-8">

@@ -18,8 +18,12 @@ export default function TabLayout() {
         tabBarActiveTintColor: colors.tint,
         headerShown: false,
         tabBarButton: HapticTab,
+        // 6 onglets : icônes et libellés légèrement réduits pour que tout tienne
+        // sans rogner les titres (surtout "Profils" / "Réglages").
+        tabBarLabelStyle: { fontSize: 10, fontWeight: "500" },
+        tabBarIconStyle: { marginTop: 2 },
         tabBarStyle: {
-          paddingTop: 8,
+          paddingTop: 6,
           paddingBottom: bottomPadding,
           height: tabBarHeight,
           backgroundColor: colors.background,
@@ -32,35 +36,42 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Accueil",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={24} name="house.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="synthesis"
         options={{
           title: "Synthèse",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={24} name="paperplane.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="voice-cloning"
         options={{
           title: "Clonage",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="chevron.left.forwardslash.chevron.right" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={24} name="chevron.left.forwardslash.chevron.right" color={color} />,
         }}
       />
       <Tabs.Screen
         name="models-manager"
         options={{
           title: "Modèles",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="chevron.right" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={24} name="chevron.right" color={color} />,
         }}
       />
       <Tabs.Screen
         name="profiles"
         options={{
           title: "Profils",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.crop.circle.badge.plus" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={24} name="person.crop.circle.badge.plus" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: "Réglages",
+          tabBarIcon: ({ color }) => <IconSymbol size={24} name="gearshape.fill" color={color} />,
         }}
       />
     </Tabs>

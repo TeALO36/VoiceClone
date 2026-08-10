@@ -1,4 +1,4 @@
-# VoxClone Pro - Design Mobile
+# VoiceClone - Design Mobile
 
 ## Vue d'ensemble
 Application de synthèse vocale (TTS) avec clonage de voix, extraction audio depuis vidéo, et gestion dynamique de modèles Hugging Face. Interface moderne inspirée d'Android 16/17 avec animations natives.

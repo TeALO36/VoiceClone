@@ -1,4 +1,4 @@
-# VoxClone Pro
+# VoiceClone
 
 Synthèse vocale et **clonage de voix 100 % local** — aucun serveur, aucune API cloud.
 
@@ -9,6 +9,31 @@ Trois moteurs on-device :
 | **Pocket TTS (Kyutai)** | ~190 Mo (fr : ~380 Mo) | Zéro-shot | **en, fr, de, pt, it, es** | Modèle 2026, très rapide sur CPU, via sherpa-onnx |
 | **OmniVoice** | ~630 Mo | Zéro-shot | 646+ | Instruction de voix libre |
 | **Qwen3-TTS 0.6B** | ~1,5 Go | Zéro-shot | 10 | Le plus fidèle, sans transcription |
+
+## 📥 Télécharger et installer (Android)
+
+L’application est distribuée via les **releases GitHub** :
+https://github.com/TeALO36/VoiceClone/releases
+
+**Quel fichier télécharger ?**
+
+| Fichier sur la release | À quoi ça sert ? |
+|---|---|
+| `VoiceClone-vX.Y.Z-android.apk` | ✅ **Le seul fichier à installer** (l’application Android) |
+| `Source code (zip)` / `Source code (tar.gz)` | ❌ Pour les développeurs uniquement — ignorer |
+
+1. Téléchargez le fichier **`VoiceClone-vX.Y.Z-android.apk`** de la dernière version (en haut de la page).
+2. Ouvrez-le : Android demande l’autorisation *« Installer des applications inconnues »* (sources inconnues) — acceptez-la.
+3. Suivez l’installation puis ouvrez **VoiceClone**.
+
+L’APK cible les téléphones Android **arm64** (pratiquement tous les appareils récents). iOS n’a pas de version pré-compilée : il faut compiler depuis les sources (voir plus bas).
+
+## 🔄 Mises à jour
+
+- **Depuis l’app** : l’écran d’accueil affiche une carte **« Mise à jour »** avec la version installée et un bouton **« Vérifier »**. Si une nouvelle version existe, un bouton **« Télécharger et installer »** la récupère (barre de progression, reprise de téléchargement) puis ouvre l’installeur Android. La vérification est aussi automatique à l’ouverture (au maximum toutes les 12 h).
+- **Manuellement** : téléchargez l’APK depuis la page Releases (voir ci-dessus) et installez-le par-dessus la version précédente — vos profils et modèles sont conservés.
+
+> **Prérequis du mode mise à jour** : le dépôt GitHub doit être **public** — l’app interroge l’API GitHub sans authentification (aucun jeton embarqué). Les deux moteurs C++ (sous-modules) sont publics également.
 
 ## Fonctionnalités
 
@@ -32,7 +57,7 @@ Trois moteurs on-device :
 pnpm install
 pnpm dev          # expo start --web
 pnpm check        # typecheck TypeScript
-node scripts/test-audio-pipeline.js   # tests unitaires du pipeline audio
+pnpm test         # tests unitaires (pipeline audio + version/mise à jour)
 ```
 
 ## Build Android

@@ -4,9 +4,9 @@ const bundleId = "com.app.voxclonemobile";
 const scheme = "voxclone";
 
 const config: ExpoConfig = {
-  name: "VoxClone Pro",
+  name: "VoiceClone",
   slug: "vox-clone-mobile",
-  version: "4.3.5",
+  version: "4.3.6",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: scheme,
@@ -20,7 +20,7 @@ const config: ExpoConfig = {
       }
   },
   android: {
-    versionCode: 8,
+    versionCode: 9,
     adaptiveIcon: {
       backgroundColor: "#E6F4FE",
       foregroundImage: "./assets/images/android-icon-foreground.png",
@@ -30,7 +30,9 @@ const config: ExpoConfig = {
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
     package: bundleId,
-    permissions: ["POST_NOTIFICATIONS"],
+    // REQUEST_INSTALL_PACKAGES (normal, non-runtime) : requis par l'installeur
+    // Android pour installer un APK téléchargé (mise à jour depuis GitHub).
+    permissions: ["POST_NOTIFICATIONS", "REQUEST_INSTALL_PACKAGES"],
     intentFilters: [
       {
         action: "VIEW",

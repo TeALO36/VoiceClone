@@ -67,3 +67,14 @@ modules/**/android/build/
 # Native runtime binaries fetched by scripts/fetch-sherpa-onnx-*.sh
 modules/**/android/src/main/jniLibs/
 modules/**/ios/Frameworks/
+
+# AI assistants / coding agents (Claude Code, Codebuff, Freebuff, Cursor, ...)
+.claude/
+.codebuff/
+.freebuff/
+.cursor/
+.windsurf/
+.continue/
+.cline/
+.aider*
+.ai/

@@ -59,7 +59,7 @@ license: other
 
 Converted from the Kyutai `pocket-tts` checkpoints to the sherpa-onnx ONNX
 layout with `insert_bos_before_voice` baked into the encoder (required by the
-multilingual models). Used by VoxClone Pro.
+multilingual models). Used by VoiceClone.
 
 Each language is a directory (`fr/`, `de/`, ...) containing:
 `lm_flow.int8.onnx`, `lm_main.int8.onnx`, `encoder.onnx`,

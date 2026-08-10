@@ -1,4 +1,4 @@
-# VoxClone Pro - TODO
+# VoiceClone - TODO
 
 ## Architecture & Setup
 - [x] Configurer Hugging Face API token
@@ -23,6 +23,7 @@
 - [x] Implémenter animations Android 16/17 (transitions, haptics)
 - [x] Implémenter dark mode
 - [x] Créer composants réutilisables (buttons, cards, loaders)
+- [x] Créer écran À propos & Réglages (version, GitHub, carte de mise à jour, 6e onglet)
 
 ## Fonctionnalités Synthèse Vocale
 - [x] Intégrer Qwen3-TTS (0.6B model) - 100% LOCAL
@@ -71,4 +72,20 @@
 ## Build & Deployment
 - [x] Générer APK Android (release, signé debug)
 - [x] Préparer documentation utilisateur
-- [ ] Publier une release GitHub avec l'APK
+- [x] Publier une release GitHub avec l'APK (workflow build-apk.yml sur tag v*)
+- [x] Rendre le dépôt GitHub public (requis pour la vérification de mise à jour sans jeton)
+
+## Mise à jour (auto-update)
+- [x] Vérifier la dernière version sur GitHub (API releases/latest, sans authentification)
+- [x] Comparer la version installée vs la dernière release (comparaison sémantique, testée)
+- [x] Bouton « Vérifier » + carte Mise à jour sur l'accueil (version installée affichée)
+- [x] Télécharger l'APK avec progression + reprise, vérification taille, installation via l'installeur Android
+- [x] Reprise du téléchargement partiel : fichier conservé en cache, détecté au lancement (bouton « Reprendre » + taille partielle), reprise depuis l'octet sauvegardé — testé sur émulateur (app tuée à 10 s → « 28.6 Mo / 62 Mo » → reprise → APK complet → installeur)
+- [x] Écran de confirmation avant téléchargement (version cible + taille + notes, boutons Annuler/Confirmer) — testé sur émulateur (modal + Annuler + Confirmer → téléchargement réel)
+- [x] Nommage explicite de l'APK sur la release : VoiceClone-vX.Y.Z-android.apk
+- [x] README : quel fichier télécharger (APK vs Source code) + mode d'emploi mise à jour
+- [x] Tester sur émulateur Android (SnapMcpVM x86_64) : build APK x86_64, installation, écran d'accueil + carte Mise à jour (API GitHub réelle → « à jour »), écran Réglages, navigation
+- [x] Corriger un bug trouvé par le test émulateur : `getAndroidId()` (Android ID aléatoire) → `applicationId` (nom du package) pour l'autorité du FileProvider
+- [x] Tester le flux de mise à jour complet : détection v4.3.5 depuis v4.3.4, notes de release réelles, téléchargement réel de l'APK 62 Mo (vérification de taille OK), lancement de l'installeur Android avec URI content:// correcte
+- [x] Finaliser l'installation sur émulateur : ajout de la permission REQUEST_INSTALL_PACKAGES (requise par l'installeur, sinon « needs to declare permission ») → clic « Installer » → l'app passe de 4.3.4 à 4.3.5 (versionCode 8) et affiche « ✅ Vous êtes à jour »
+- [x] Unifier le nom : « VoxClone Pro » → « VoiceClone » partout (nom affiché de l'app, écran d'accueil, Réglages, modal, messages, README, design.md, User-Agent, workflow CI). APK de la release v4.3.5 renommé en VoiceClone-v4.3.5-android.apk (ré-upload + suppression de l'ancien). Vérifié sur émulateur : écran d'accueil « VoiceClone », label APK « VoiceClone », détection de mise à jour OK avec le nouvel asset
