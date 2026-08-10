@@ -102,3 +102,8 @@
 - [x] Champ « Style & intonation (texte) » dans Synthèse pour OmniVoice : saisie libre + chips rapides + validation JS contre le vocabulaire voice-design (avertissement avant la synthèse), prioritaire sur le preset
 - [x] Gestionnaire de modèles : badges « ✍️ Style par texte : oui/non » + « ✅ Atouts » / « ⚠️ Limites » sur chaque moteur (vérifiés sur le web)
 - [x] README : tableau des moteurs enrichi (colonne Style par texte + note honnête sur l'absence d'émotion progressive)
+
+## v4.3.9 — Regroupement des variantes Pocket TTS
+- [x] Modèles : les 11 variantes Pocket TTS (6 langues × standard/fp32) s'affichent désormais comme UNE carte « Pocket TTS (Kyutai) » avec un sélecteur Langue (en/fr/de/pt/it/es) + Fidélité (Standard/fp32) + taille + bouton « Installer Pocket TTS — <langue> (fp32) » — vérifié sur le web (sélecteur fonctionnel, taille mise à jour)
+- [x] Onglet « Installés » : une carte Pocket TTS groupée listant les langues installées avec suppression par langue
+- [x] Accueil : la liste « Modèles disponibles » est compactée (OmniVoice, Qwen3-TTS, Pocket TTS seul)

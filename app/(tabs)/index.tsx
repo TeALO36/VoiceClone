@@ -5,11 +5,35 @@ import { useTTS } from '@/lib/context/tts-context';
 import { useColors } from '@/hooks/use-colors';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import type { TTSModel } from '@/lib/services/models';
 
 export default function HomeScreen() {
   const colors = useColors();
   const { installedModels, availableModels } = useTTS();
   const router = useRouter();
+
+  // The home summary shows one line per engine family: the Pocket TTS
+  // variants (11 catalog entries for language × fidelity) collapse into a
+  // single « Pocket TTS » entry — the language picker lives in the manager.
+  const pocketAvailable = availableModels.filter((m) => m.type === 'pocket');
+  const otherAvailable = availableModels.filter((m) => m.type !== 'pocket');
+  const compactAvailable: TTSModel[] = [
+    ...otherAvailable,
+    ...(pocketAvailable.length > 0
+      ? [
+          {
+            id: 'pocket-group',
+            name: 'Pocket TTS (Kyutai)',
+            description: 'Clonage zéro-shot 100M — 6 langues (en, fr, de, pt, it, es), standard ou fp32',
+            size: pocketAvailable.reduce((max, m) => Math.max(max, m.size), 0),
+            languages: ['English', 'Français', 'Deutsch', 'Português', 'Italiano', 'Español'],
+            ggufFiles: [],
+            type: 'pocket',
+            isInstalled: false,
+          } as TTSModel,
+        ]
+      : []),
+  ];
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B';
@@ -122,11 +146,11 @@ export default function HomeScreen() {
         )}
 
         {/* Available Models — ONLY available (not installed) */}
-        {availableModels.length > 0 && (
+        {compactAvailable.length > 0 && (
           <View className="px-6">
             <Text className="text-lg font-bold text-foreground mb-4">Modèles disponibles</Text>
             <FlatList
-              data={availableModels}
+              data={compactAvailable}
               keyExtractor={(item) => item.id}
               scrollEnabled={false}
               renderItem={({ item }) => (
@@ -157,7 +181,7 @@ export default function HomeScreen() {
         )}
 
         {/* Empty state */}
-        {installedModels.length === 0 && availableModels.length === 0 && (
+        {installedModels.length === 0 && compactAvailable.length === 0 && (
           <View className="px-6 items-center py-8">
             <Text className="text-lg text-muted">Aucun modèle disponible</Text>
           </View>

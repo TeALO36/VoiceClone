@@ -363,6 +363,32 @@ const MODEL_CATALOG: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
   },
 ];
 
+// ─── Pocket TTS grouped variants ───
+//
+// The catalog carries one model entry per Pocket TTS language (and per
+// fidelity) because each is a separate checkpoint download. The UI shows a
+// SINGLE « Pocket TTS » card and maps the user's (language, fidelity) choice
+// onto these ids, so the model list stays short instead of listing eleven
+// near-identical entries.
+export interface PocketVariantInfo {
+  langId: string;
+  label: string;
+  flag: string;
+  /** Catalog id of the int8 (standard) checkpoint. */
+  stdId: string;
+  /** Catalog id of the fp32 checkpoint, or null when no fp32 exists (en). */
+  fp32Id: string | null;
+}
+
+export const POCKET_VARIANTS: PocketVariantInfo[] = [
+  { langId: 'en', label: 'English', flag: '🇬🇧', stdId: 'pocket-tts', fp32Id: null },
+  { langId: 'fr', label: 'Français', flag: '🇫🇷', stdId: 'pocket-tts-fr', fp32Id: 'pocket-tts-fr-fp32' },
+  { langId: 'de', label: 'Deutsch', flag: '🇩🇪', stdId: 'pocket-tts-de', fp32Id: 'pocket-tts-de-fp32' },
+  { langId: 'pt', label: 'Português', flag: '🇵🇹', stdId: 'pocket-tts-pt', fp32Id: 'pocket-tts-pt-fp32' },
+  { langId: 'it', label: 'Italiano', flag: '🇮🇹', stdId: 'pocket-tts-it', fp32Id: 'pocket-tts-it-fp32' },
+  { langId: 'es', label: 'Español', flag: '🇪🇸', stdId: 'pocket-tts-es', fp32Id: 'pocket-tts-es-fp32' },
+];
+
 // Bumped to v2 when the on-disk GGUF filenames changed. Anything recorded
 // under the old key points at files the current loader cannot find, so those
 // installs are wiped rather than left to fail at load time.
