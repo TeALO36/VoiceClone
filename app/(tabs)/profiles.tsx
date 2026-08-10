@@ -11,6 +11,7 @@ import { profilesService, type VoiceProfile } from '@/lib/services/profiles';
 import { getLanguagesForModel, VOICE_PRESETS, resolvePresetVoice } from '@/lib/services/local-tts';
 import { DEFAULT_SPEECH_PARAMS, type SpeechParams } from '@/lib/services/audio-pipeline';
 import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 
 const SAMPLE_TEXT: Record<string, string> = {
@@ -31,6 +32,7 @@ function sampleText(language: string): string {
 
 export default function ProfilesScreen() {
   const colors = useColors();
+  const router = useRouter();
   const { profiles, saveProfile, deleteProfile } = useProfiles();
   const { installedModels, getModelPath, ttsEngine, enqueueGeneration } = useTTS();
 
@@ -199,8 +201,20 @@ export default function ProfilesScreen() {
                   </View>
                   <View className="flex-row gap-2">
                     <Pressable
-                      onPress={() => openEdit(profile)}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        router.navigate({
+                          pathname: '/voice-cloning',
+                          params: { profileId: profile.id },
+                        });
+                      }}
                       className="flex-1 bg-primary rounded-lg p-2"
+                    >
+                      <Text className="text-white font-semibold text-center text-sm">Utiliser</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => openEdit(profile)}
+                      className="flex-1 bg-secondary rounded-lg p-2"
                     >
                       <Text className="text-white font-semibold text-center text-sm">Modifier</Text>
                     </Pressable>

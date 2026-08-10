@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { ScrollView, Text, View, Pressable } from 'react-native';
+import { ScrollView, Text, View, Pressable, Switch } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { openBrowserAsync } from 'expo-web-browser';
 import { ScreenContainer } from '@/components/screen-container';
 import { UpdateCard } from '@/components/update-card';
 import { useColors } from '@/hooks/use-colors';
+import { useConsent, exitApp } from '@/lib/context/consent-context';
 import {
   GITHUB_RELEASES_URL,
   GITHUB_REPO_URL,
@@ -19,6 +20,7 @@ const ENGINES = [
 
 export default function SettingsScreen() {
   const colors = useColors();
+  const { accepted, revoke } = useConsent();
   const [version, setVersion] = useState('');
 
   useEffect(() => {
@@ -62,6 +64,35 @@ export default function SettingsScreen() {
                 <Text className="text-xs text-muted flex-1 text-right ml-3">{engine.detail}</Text>
               </View>
             ))}
+          </View>
+        </View>
+
+        {/* Consent */}
+        <View className="px-6 mb-4">
+          <View className="bg-surface rounded-xl p-4 border border-border">
+            <View className="flex-row items-center justify-between mb-1">
+              <Text className="text-base font-semibold text-foreground">
+                ⚖️ Consentement & responsabilité
+              </Text>
+              <Switch
+                value={accepted === true}
+                onValueChange={(value) => {
+                  if (value) return;
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  // Retirer le consentement bloque (web/iOS) ou ferme (Android)
+                  // l'application jusqu'à un nouvel accord.
+                  revoke();
+                  exitApp();
+                }}
+                trackColor={{ false: colors.border, true: colors.primary }}
+                thumbColor="#ffffff"
+              />
+            </View>
+            <Text className="text-xs text-muted leading-4">
+              Vous avez accepté les conditions d’utilisation au premier lancement.
+              Vous pouvez retirer votre consentement à tout moment : l’application
+              se bloquera ou se fermera jusqu’à ce que vous acceptiez de nouveau.
+            </Text>
           </View>
         </View>
 

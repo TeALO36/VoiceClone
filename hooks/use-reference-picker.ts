@@ -29,10 +29,20 @@ export interface PickedReference {
  */
 export function useReferencePicker() {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const [reference, setReference] = useState<PickedReference | null>(null);
+  const [reference, setReferenceState] = useState<PickedReference | null>(null);
   const [isConverting, setIsConverting] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isReady, setIsReady] = useState(false);
+
+  // Selecting a saved profile loads its persisted WAV straight into the
+  // picker: the reference is immediately usable, so the downstream steps
+  // (language, text, …) must unlock at the same time. `applyPrepared` keeps
+  // using the raw state setter because it toggles isReady itself around the
+  // native conversion.
+  const setReference = useCallback((ref: PickedReference | null) => {
+    setReferenceState(ref);
+    setIsReady(ref !== null);
+  }, []);
 
   const applyPrepared = useCallback(async (asset: DocumentPicker.DocumentPickerAsset) => {
     let playUri = asset.uri;
@@ -51,7 +61,7 @@ export function useReferencePicker() {
       }
     }
 
-    setReference({
+    setReferenceState({
       name: asset.name,
       wavUri: asset.uri,
       playUri: playUri || asset.uri,
@@ -70,7 +80,7 @@ export function useReferencePicker() {
     setIsConverting(true);
     try {
       const prepared = await prepareReference(asset.uri);
-      setReference((prev) => (prev ? { ...prev, wavUri: prepared.uri, duration: prepared.duration } : prev));
+      setReferenceState((prev) => (prev ? { ...prev, wavUri: prepared.uri, duration: prepared.duration } : prev));
       setIsReady(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error: any) {
@@ -125,7 +135,7 @@ export function useReferencePicker() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
       if (Platform.OS === 'web') {
-        setReference({
+        setReferenceState({
           name: 'Enregistrement.webm',
           wavUri: uri,
           playUri: uri,
@@ -140,7 +150,7 @@ export function useReferencePicker() {
       setIsConverting(true);
       try {
         const prepared = await prepareReference(uri);
-        setReference({
+        setReferenceState({
           name: `Enregistrement ${new Date().toLocaleTimeString()}.wav`,
           wavUri: prepared.uri,
           playUri: uri,
@@ -168,7 +178,7 @@ export function useReferencePicker() {
         URL.revokeObjectURL(reference.playUri);
       } catch (_) {}
     }
-    setReference(null);
+    setReferenceState(null);
     setIsReady(false);
   }, [reference]);
 

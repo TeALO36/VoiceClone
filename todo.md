@@ -89,3 +89,10 @@
 - [x] Tester le flux de mise à jour complet : détection v4.3.5 depuis v4.3.4, notes de release réelles, téléchargement réel de l'APK 62 Mo (vérification de taille OK), lancement de l'installeur Android avec URI content:// correcte
 - [x] Finaliser l'installation sur émulateur : ajout de la permission REQUEST_INSTALL_PACKAGES (requise par l'installeur, sinon « needs to declare permission ») → clic « Installer » → l'app passe de 4.3.4 à 4.3.5 (versionCode 8) et affiche « ✅ Vous êtes à jour »
 - [x] Unifier le nom : « VoxClone Pro » → « VoiceClone » partout (nom affiché de l'app, écran d'accueil, Réglages, modal, messages, README, design.md, User-Agent, workflow CI). APK de la release v4.3.5 renommé en VoiceClone-v4.3.5-android.apk (ré-upload + suppression de l'ancien). Vérifié sur émulateur : écran d'accueil « VoiceClone », label APK « VoiceClone », détection de mise à jour OK avec le nouvel asset
+
+## v4.3.7 — Export, profils & consentement
+- [x] Exporter les fichiers audio générés : bouton « ⤴ Exporter » sur chaque génération (Synthèse + Clonage) via expo-sharing (Android) et téléchargement direct (web). Nom de fichier lisible `VoiceClone_<texte>_<timestamp>.wav`
+- [x] Corriger la sélection d'un profil sauvegardé dans Clonage : `setReference` ne mettait pas `isReady` à true → seules l'étape 1 s'affichait après redémarrage. Fix dans `useReferencePicker` (isReady suit la référence)
+- [x] Profils : bouton « Utiliser » sur chaque carte → bascule vers l'onglet Clonage avec le profil pré-sélectionné (param `?profileId=`)
+- [x] Écran de consentement au premier lancement : texte professionnel (responsabilité, usages interdits, « en l'état »), boutons « J'accepte » / « Refuser et quitter » (quitte l'app). Persisté dans AsyncStorage
+- [x] Réglages : interrupteur « Consentement & responsabilité » — le retirer bloque (web/iOS) ou ferme (Android) l'app jusqu'à un nouvel accord — testé sur émulateur (gate affiché → accepter → app ; toggle off → relance → gate de nouveau)

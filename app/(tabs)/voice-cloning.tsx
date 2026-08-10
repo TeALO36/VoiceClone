@@ -9,7 +9,8 @@ import { ReferenceSourcePicker } from '@/components/reference-source-picker';
 import { AdvancedParamsEditor } from '@/components/advanced-params-editor';
 import { useReferencePicker } from '@/hooks/use-reference-picker';
 import * as Haptics from 'expo-haptics';
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
 import { getLanguagesForModel } from '@/lib/services/local-tts';
 import type { Quality } from '@/modules/expo-qwen3-tts';
 import type { VoiceProfile } from '@/lib/services/profiles';
@@ -18,9 +19,11 @@ import { DEFAULT_SPEECH_PARAMS, type SpeechParams } from '@/lib/services/audio-p
 export default function VoiceCloningScreen() {
   const colors = useColors();
   const { installedModels, getModelPath, ttsEngine, enqueueGeneration, jobs } = useTTS();
-  const { saveProfile } = useProfiles();
+  const { profiles, saveProfile } = useProfiles();
+  const { profileId } = useLocalSearchParams<{ profileId?: string }>();
 
   const picker = useReferencePicker();
+  const { setReference: applyProfileReference } = picker;
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState('fr');
   const [cloneText, setCloneText] = useState('');
@@ -48,7 +51,7 @@ export default function VoiceCloningScreen() {
 
   const hasModels = installedModels.length > 0;
 
-  const handleSelectProfile = (profile: VoiceProfile | null) => {
+  const handleSelectProfile = useCallback((profile: VoiceProfile | null) => {
     setSelectedProfileId(profile?.id ?? null);
     if (!profile) {
       // Keep the user's own picked reference; just reset model/lang/params.
@@ -61,7 +64,7 @@ export default function VoiceCloningScreen() {
     setSelectedLanguage(profile.language);
     setParams({ ...profile.params });
     if (profile.reference) {
-      picker.setReference({
+      applyProfileReference({
         name: profile.reference.sourceName,
         wavUri: profile.reference.wavUri,
         playUri: profile.reference.wavUri,
@@ -70,7 +73,22 @@ export default function VoiceCloningScreen() {
         size: 0,
       });
     }
-  };
+  }, [applyProfileReference]);
+
+  // « Utiliser » (Profils tab) → arrive with ?profileId=… : select the profile
+  // as soon as it is loaded, so the user lands with everything filled in.
+  const appliedProfileId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!profileId) {
+      appliedProfileId.current = null;
+      return;
+    }
+    if (appliedProfileId.current === profileId) return;
+    const profile = profiles.find((p) => p.id === profileId);
+    if (!profile) return;
+    appliedProfileId.current = profileId;
+    handleSelectProfile(profile);
+  }, [profileId, profiles, handleSelectProfile]);
 
   const handleCloneVoice = async () => {
     if (!picker.reference || !picker.isReady) {
