@@ -6,7 +6,7 @@ const scheme = "voxclone";
 const config: ExpoConfig = {
   name: "VoiceClone",
   slug: "vox-clone-mobile",
-  version: "4.3.10",
+  version: "4.3.11",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: scheme,
@@ -20,9 +20,9 @@ const config: ExpoConfig = {
       }
   },
   android: {
-    versionCode: 13,
+    versionCode: 14,
     adaptiveIcon: {
-      backgroundColor: "#E6F4FE",
+      backgroundColor: "#6366F1",
       foregroundImage: "./assets/images/android-icon-foreground.png",
       backgroundImage: "./assets/images/android-icon-background.png",
       monochromeImage: "./assets/images/android-icon-monochrome.png",
@@ -71,11 +71,11 @@ const config: ExpoConfig = {
       "expo-splash-screen",
       {
         image: "./assets/images/splash-icon.png",
-        imageWidth: 200,
+        imageWidth: 260,
         resizeMode: "contain",
-        backgroundColor: "#ffffff",
+        backgroundColor: "#6366F1",
         dark: {
-          backgroundColor: "#000000",
+          backgroundColor: "#6366F1",
         },
       },
     ],

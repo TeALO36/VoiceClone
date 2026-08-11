@@ -112,3 +112,9 @@
 - [x] Fix natif `resolveReference` (ExpoQwen3TtsModule.kt) : la vérification du dossier profil comparait `parentFile.name == "profiles"` alors que le parent réel est l'id du profil — les références de profils sauvegardés étaient re-décodées à chaque clonage ; désormais elles passent directement
 - [x] Carte Qwen3-TTS : précision « Réglages fins disponibles : pauses aux ponctuations, vitesse, volume (comme tous les moteurs) » + limite reformulée (le style vocal suit l'échantillon ; le modèle officiel accepte des instructions, pas notre portage local)
 - [x] Test sur émulateur Android (AVD déplacé sur D: pour libérer C:, RAM 4 Go) : clonage avec profil « Voix de Test » + Qwen3 → « Qwen3 wrote 153045 samples » (6,4 s d'audio), génération affichée « Terminé » — plus d'erreur « Call to function ExpoQwen3Tts.cloneVoice has been rejected »
+
+## v4.3.11 — Logo & splash screen de marque
+- [x] Nouveau logo VoiceClone : forme d'onde (5 barres arrondies) blanche sur dégradé indigo → violet (#6366F1 → #8B5CF6) — généré par scripts/generate-branding.py (icône, foreground/background/monochrome adaptatifs, favicon, logo de splash avec wordmark « VoiceClone »)
+- [x] Ressources natives Android régénérées (scripts/generate-android-res.py) : icônes launcher/round/adaptatives en webp lossless + splashscreen_logo.png par densité + couleurs splash/iconBackground = #6366F1 (clair et sombre)
+- [x] app.config.ts : splash backgroundColor indigo (clair + sombre), imageWidth 260 ; écran À propos & Réglages : logo affiché dans la carte « VoiceClone »
+- [x] Vérifié sur émulateur : splash indigo avec logo + wordmark, icône launcher avec la forme d'onde, logo dans Réglages

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ScrollView, Text, View, Pressable, Switch } from 'react-native';
+import { Image, ScrollView, Text, View, Pressable, Switch } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { openBrowserAsync } from 'expo-web-browser';
 import { ScreenContainer } from '@/components/screen-container';
@@ -46,11 +46,19 @@ export default function SettingsScreen() {
         {/* App info */}
         <View className="px-6 mb-4">
           <View className="bg-surface rounded-xl p-4 border border-border">
-            <View className="flex-row items-center justify-between mb-2">
-              <Text className="text-base font-semibold text-foreground">VoiceClone</Text>
-              {version ? (
-                <Text className="text-sm font-semibold text-primary">v{version}</Text>
-              ) : null}
+            <View className="flex-row items-center mb-2">
+              <Image
+                source={require('@/assets/images/icon.png')}
+                style={{ width: 44, height: 44, borderRadius: 10 }}
+              />
+              <View className="flex-1 ml-3">
+                <View className="flex-row items-center justify-between">
+                  <Text className="text-base font-semibold text-foreground">VoiceClone</Text>
+                  {version ? (
+                    <Text className="text-sm font-semibold text-primary">v{version}</Text>
+                  ) : null}
+                </View>
+              </View>
             </View>
             <Text className="text-xs text-muted mb-4">
               Synthèse vocale & clonage de voix — 100 % local, aucun serveur, aucune API cloud.
