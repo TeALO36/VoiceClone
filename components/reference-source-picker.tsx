@@ -36,6 +36,19 @@ export function ReferenceSourcePicker({
   const colors = useColors();
 
   if (!reference) {
+    if (isConverting) {
+      return (
+        <View className="bg-surface border border-border rounded-2xl p-5 items-center">
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text className="text-sm text-muted mt-3 text-center">
+            Extraction de la voix…
+          </Text>
+          <Text className="text-xs text-muted mt-1 text-center">
+            Conversion de l&apos;enregistrement en WAV 24 kHz
+          </Text>
+        </View>
+      );
+    }
     return (
       <View>
         <View className="flex-row gap-2">

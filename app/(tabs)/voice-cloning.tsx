@@ -112,6 +112,9 @@ export default function VoiceCloningScreen() {
     const language = effectiveLanguage;
     const chosenQuality = quality;
     const chosenParams = params;
+    // Export filenames carry the voice's name (the selected profile).
+    const voiceName =
+      profiles.find((p) => p.id === selectedProfileId)?.name?.trim() || 'Non-profil';
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     enqueueGeneration('clone', spoken, async () => {
@@ -128,7 +131,7 @@ export default function VoiceCloningScreen() {
         quality: chosenQuality,
         params: chosenParams,
       });
-    });
+    }, voiceName);
 
     setCloneText('');
   };

@@ -88,7 +88,7 @@ export function GenerationQueue({ kind }: { kind: GenerationKind }) {
             </View>
 
             {job.status === 'done' && job.result && (
-              <AudioPlayer result={job.result} fileName={job.label} />
+              <AudioPlayer result={job.result} fileName={job.voiceName ?? 'Non-profil'} />
             )}
           </View>
         );

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Platform, Alert } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import {
@@ -33,6 +33,13 @@ export function useReferencePicker() {
   const [isConverting, setIsConverting] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isReady, setIsReady] = useState(false);
+
+  /**
+   * When the encoder captures almost nothing (a known flaky-device case), the
+   * conversion fails with "Extrait trop court". Instead of dropping the user
+   * into an error, we restart the recording automatically — up to two tries.
+   */
+  const recordRetriesRef = useRef(0);
 
   // Selecting a saved profile loads its persisted WAV straight into the
   // picker: the reference is immediately usable, so the downstream steps
@@ -115,9 +122,26 @@ export function useReferencePicker() {
         return;
       }
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      // expo-audio requires an explicit prepare before record(): on Android,
+      // record() silently no-ops when the recorder isn't prepared, leaving
+      // filePath unset — stop() would then report an "empty recording" even
+      // though the user spoke.
+      recordRetriesRef.current = 2;
+      await recorder.prepareToRecordAsync();
       await recorder.record();
       setIsRecording(true);
     } catch (error) {
+      // Flaky encoders (emulators, some devices) can fail the first prepare.
+      // Give it one quick retry before surfacing the error.
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        await recorder.prepareToRecordAsync();
+        await recorder.record();
+        setIsRecording(true);
+        return;
+      } catch (retryError) {
+        console.error('Failed to start recording (after retry):', retryError);
+      }
       console.error('Failed to start recording:', error);
       Alert.alert('Erreur', 'Impossible de démarrer l\u2019enregistrement');
     }
@@ -127,7 +151,13 @@ export function useReferencePicker() {
     try {
       await recorder.stop();
       setIsRecording(false);
-      const uri = recorder.uri;
+      // Defensive: the native side can take a moment to finalise the file on
+      // some devices. Give it up to ~1 s before declaring the recording empty.
+      let uri = recorder.uri;
+      for (let attempt = 0; !uri && attempt < 5; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        uri = recorder.uri;
+      }
       if (!uri) {
         Alert.alert('Erreur', 'Enregistrement vide');
         return;
@@ -161,6 +191,24 @@ export function useReferencePicker() {
         setIsReady(true);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (error: any) {
+        // The encoder captured almost nothing (flaky devices/emulators).
+        // Restart the recording on its own so the user just speaks again
+        // instead of being stopped by a "too short" error.
+        const tooShort = String(error?.message || '').includes('trop court');
+        if (tooShort && recordRetriesRef.current > 0) {
+          recordRetriesRef.current -= 1;
+          const tryNumber = 2 - recordRetriesRef.current;
+          setIsConverting(false);
+          Alert.alert(
+            'Encore un essai',
+            `L\u2019enregistrement était trop court (moins d\u2019une seconde de voix). ` +
+              `Parlez à nouveau, puis appuyez sur Arrêter (essai ${tryNumber}/2).`
+          );
+          await recorder.prepareToRecordAsync();
+          await recorder.record();
+          setIsRecording(true);
+          return;
+        }
         console.error('Recording conversion failed:', error);
         Alert.alert('Extrait inutilisable', error?.message || 'Impossible de traiter l\u2019enregistrement.');
       } finally {

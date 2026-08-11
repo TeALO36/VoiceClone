@@ -14,13 +14,17 @@ interface AudioPlayerProps {
   fileName?: string;
 }
 
-/** Turn a text snippet into a safe, readable filename fragment. */
+/**
+ * Turn a voice/profile name into a safe, readable filename fragment.
+ * Capped so the export filename stays short (the profile name, not the whole
+ * spoken text, is what the file is named after).
+ */
 function slugify(text: string): string {
   const cleaned = text
     .replace(/[^\p{L}\p{N}_-]+/gu, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
-    .slice(0, 60);
+    .slice(0, 40);
   return cleaned || 'audio';
 }
 

@@ -3,6 +3,8 @@ import { modelsService, TTSModel, ModelState } from '@/lib/services/models';
 import { onDeviceTts, OnDeviceTTSService } from '@/lib/services/local-tts';
 import type { Qwen3TtsResult } from '@/modules/expo-qwen3-tts';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system/legacy';
 
 export type GenerationKind = 'synthesis' | 'clone';
 export type GenerationStatus = 'queued' | 'running' | 'done' | 'error';
@@ -12,6 +14,11 @@ export interface GenerationJob {
   kind: GenerationKind;
   /** Short label shown in the queue — usually the start of the text. */
   label: string;
+  /**
+   * Name of the voice used (the selected profile), used for export filenames.
+   * Absent/empty means no profile was in play (classic TTS).
+   */
+  voiceName?: string;
   status: GenerationStatus;
   queuedAt: number;
   startedAt?: number;
@@ -42,7 +49,9 @@ export interface TTSContextType {
   enqueueGeneration: (
     kind: GenerationKind,
     label: string,
-    run: () => Promise<Qwen3TtsResult>
+    run: () => Promise<Qwen3TtsResult>,
+    /** Name of the voice/profile used — drives the export filename. */
+    voiceName?: string
   ) => string;
   clearJob: (id: string) => void;
   clearFinishedJobs: () => void;
@@ -53,6 +62,32 @@ export interface TTSContextType {
 const TTSContext = createContext<TTSContextType | undefined>(undefined);
 
 let jobCounter = 0;
+
+/** Finished generations are persisted so the history survives app restarts. */
+const HISTORY_KEY = 'voxclone_generation_history_v1';
+const MAX_HISTORY_JOBS = 50;
+
+/** Persistent copy of a finished generation's audio (documents dir, not cache). */
+function generationAudioPath(jobId: string): string {
+  return `${FileSystem.documentDirectory}generations/${jobId}.wav`;
+}
+
+/**
+ * Persist the finished jobs (done with audio) to AsyncStorage, capped to the
+ * most recent MAX_HISTORY_JOBS. Audio files beyond the cap are removed.
+ */
+async function persistHistory(jobsList: GenerationJob[]): Promise<void> {
+  const finished = jobsList.filter((job) => job.status === 'done' && job.result);
+  const dropped = finished.length > MAX_HISTORY_JOBS ? finished.slice(0, finished.length - MAX_HISTORY_JOBS) : [];
+  dropped.forEach((job) => {
+    FileSystem.deleteAsync(generationAudioPath(job.id), { idempotent: true }).catch(() => {});
+  });
+  try {
+    await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(finished.slice(-MAX_HISTORY_JOBS)));
+  } catch (error) {
+    console.warn('Failed to persist generation history:', error);
+  }
+}
 
 export function TTSProvider({ children }: { children: ReactNode }) {
   const [installedModels, setInstalledModels] = useState<TTSModel[]>([]);
@@ -78,6 +113,25 @@ export function TTSProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refreshModels();
   }, [refreshModels]);
+
+  // Restore the persisted generation history on launch.
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(HISTORY_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored) as GenerationJob[];
+          const restored = parsed.filter(
+            (job) => job.status === 'done' && job.result
+          );
+          jobsRef.current = restored;
+          setJobs(restored);
+        }
+      } catch (error) {
+        console.warn('Failed to restore generation history:', error);
+      }
+    })();
+  }, []);
 
   const downloadModel = useCallback(async (modelId: string): Promise<boolean> => {
     setDownloadingModels((prev) => ({ ...prev, [modelId]: 0 }));
@@ -130,9 +184,15 @@ export function TTSProvider({ children }: { children: ReactNode }) {
 
   const pending = useRef<{ id: string; run: () => Promise<Qwen3TtsResult> }[]>([]);
   const draining = useRef(false);
+  // Mirror of the jobs state kept in sync so history can be persisted without
+  // depending on setState timing.
+  const jobsRef = useRef<GenerationJob[]>([]);
 
   const patchJob = useCallback((id: string, patch: Partial<GenerationJob>) => {
-    setJobs((prev) => prev.map((job) => (job.id === id ? { ...job, ...patch } : job)));
+    const next = jobsRef.current.map((job) => (job.id === id ? { ...job, ...patch } : job));
+    jobsRef.current = next;
+    setJobs(next);
+    void persistHistory(next);
   }, []);
 
   const drain = useCallback(async () => {
@@ -147,7 +207,31 @@ export function TTSProvider({ children }: { children: ReactNode }) {
         const next = pending.current.shift()!;
         patchJob(next.id, { status: 'running', startedAt: Date.now() });
         try {
-          const result = await next.run();
+          let result = await next.run();
+          // Keep finished audio out of the cache (the native layer cleans it
+          // after an hour): copy it into the documents directory so the history
+          // entry stays playable across restarts. On failure the cache URI is
+          // kept — the job still shows, just without a guaranteed copy.
+          try {
+            const targetPath = generationAudioPath(next.id);
+            const targetInfo = await FileSystem.getInfoAsync(targetPath);
+            if (!targetInfo.exists) {
+              await FileSystem.makeDirectoryAsync(
+                `${FileSystem.documentDirectory}generations`,
+                { intermediates: true }
+              );
+              // Keep the file:// scheme on the source: expo-file-system treats
+              // a raw path as an Android resource name (getInfoAsync would
+              // report it missing, copyAsync would throw).
+              await FileSystem.copyAsync({
+                from: result.audioUri,
+                to: targetPath,
+              });
+            }
+            result = { ...result, audioUri: `file://${targetPath}` };
+          } catch (copyError) {
+            console.warn('Failed to persist generation audio:', copyError);
+          }
           patchJob(next.id, { status: 'done', finishedAt: Date.now(), result });
         } catch (error: any) {
           patchJob(next.id, {
@@ -164,12 +248,21 @@ export function TTSProvider({ children }: { children: ReactNode }) {
   }, [patchJob]);
 
   const enqueueGeneration = useCallback(
-    (kind: GenerationKind, label: string, run: () => Promise<Qwen3TtsResult>): string => {
-      const id = `job-${++jobCounter}`;
-      setJobs((prev) => [
-        ...prev,
-        { id, kind, label, status: 'queued', queuedAt: Date.now() },
-      ]);
+    (
+      kind: GenerationKind,
+      label: string,
+      run: () => Promise<Qwen3TtsResult>,
+      voiceName?: string
+    ): string => {
+      // Timestamp prefix keeps ids unique across app restarts so a restored
+      // history entry can never collide with a fresh job.
+      const id = `job-${Date.now()}-${++jobCounter}`;
+      const next: GenerationJob[] = [
+        ...jobsRef.current,
+        { id, kind, label, voiceName, status: 'queued', queuedAt: Date.now() },
+      ];
+      jobsRef.current = next;
+      setJobs(next);
       pending.current.push({ id, run });
       void drain();
       return id;
@@ -178,11 +271,29 @@ export function TTSProvider({ children }: { children: ReactNode }) {
   );
 
   const clearJob = useCallback((id: string) => {
-    setJobs((prev) => prev.filter((job) => job.id !== id));
+    const removed = jobsRef.current.find((job) => job.id === id);
+    const next = jobsRef.current.filter((job) => job.id !== id);
+    jobsRef.current = next;
+    setJobs(next);
+    void persistHistory(next);
+    if (removed) {
+      FileSystem.deleteAsync(generationAudioPath(id), { idempotent: true }).catch(() => {});
+    }
   }, []);
 
   const clearFinishedJobs = useCallback(() => {
-    setJobs((prev) => prev.filter((job) => job.status === 'queued' || job.status === 'running'));
+    const removed = jobsRef.current.filter(
+      (job) => job.status === 'done' || job.status === 'error'
+    );
+    const next = jobsRef.current.filter(
+      (job) => job.status === 'queued' || job.status === 'running'
+    );
+    jobsRef.current = next;
+    setJobs(next);
+    void persistHistory(next);
+    removed.forEach((job) => {
+      FileSystem.deleteAsync(generationAudioPath(job.id), { idempotent: true }).catch(() => {});
+    });
   }, []);
 
   // Drive the elapsed-time displays. Only ticks while work is outstanding so

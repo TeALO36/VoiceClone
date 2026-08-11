@@ -82,6 +82,8 @@ export default function SynthesisScreen() {
     const chosenParams = params;
     const profile = profileVoice;
     const presetId = selectedVoice;
+    // Export filenames carry the voice's name (the selected profile).
+    const voiceName = profile?.name?.trim() || 'Non-profil';
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     enqueueGeneration('synthesis', spoken, async () => {
@@ -118,7 +120,7 @@ export default function SynthesisScreen() {
         referenceAudioUri: preset?.referenceAudioUri,
         params: chosenParams,
       });
-    });
+    }, voiceName);
 
     setText('');
   };

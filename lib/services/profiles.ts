@@ -86,8 +86,13 @@ export const profilesService = {
     const profiles = await readProfiles();
 
     if (profile.reference && referenceWavSource) {
+      // Keep the file:// scheme on both URIs: expo-file-system treats a raw
+      // path as an Android resource name, so a bare path would make the copy
+      // below throw and, before that, make getInfoAsync report the source as
+      // missing (which silently skipped the copy and left the profile
+      // pointing at a cache file that the native layer cleans after an hour).
       const target = referenceWavPath(profile.id);
-      const sourcePath = referenceWavSource.replace(/^file:\/\//, '');
+      const sourcePath = referenceWavSource;
       if (sourcePath !== target) {
         const dirInfo = await FileSystem.getInfoAsync(profileDir(profile.id));
         if (!dirInfo.exists) {
@@ -96,9 +101,10 @@ export const profilesService = {
         const sourceInfo = await FileSystem.getInfoAsync(sourcePath);
         if (sourceInfo.exists) {
           // Copy instead of move: the cache file may be shared with the live
-          // preview in the cloning screen.
+          // preview in the cloning screen. `target` already carries file://
+          // (referenceWavPath is built from documentDirectory).
           await FileSystem.copyAsync({ from: sourcePath, to: target });
-          profile.reference = { ...profile.reference, wavUri: `file://${target}` };
+          profile.reference = { ...profile.reference, wavUri: target };
         }
       }
     }

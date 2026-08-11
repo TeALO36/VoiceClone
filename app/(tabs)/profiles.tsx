@@ -122,6 +122,8 @@ export default function ProfilesScreen() {
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const spoken = sampleText(effectiveLanguage);
+    // Export filenames carry the voice's name (the profile being tested).
+    const voiceName = name.trim() || 'Non-profil';
 
     enqueueGeneration('clone', spoken, async () => {
       const modelDir = await getModelPath(activeModel.id);
@@ -148,7 +150,7 @@ export default function ProfilesScreen() {
         referenceAudioUri: preset?.referenceAudioUri,
         params,
       });
-    });
+    }, voiceName);
   };
 
   // ── List view ────────────────────────────────────────────────────────
