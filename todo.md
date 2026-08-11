@@ -107,3 +107,8 @@
 - [x] Modèles : les 11 variantes Pocket TTS (6 langues × standard/fp32) s'affichent désormais comme UNE carte « Pocket TTS (Kyutai) » avec un sélecteur Langue (en/fr/de/pt/it/es) + Fidélité (Standard/fp32) + taille + bouton « Installer Pocket TTS — <langue> (fp32) » — vérifié sur le web (sélecteur fonctionnel, taille mise à jour)
 - [x] Onglet « Installés » : une carte Pocket TTS groupée listant les langues installées avec suppression par langue
 - [x] Accueil : la liste « Modèles disponibles » est compactée (OmniVoice, Qwen3-TTS, Pocket TTS seul)
+
+## v4.3.10 — Fix clonage Qwen3 avec profil + carte honnête
+- [x] Fix natif `resolveReference` (ExpoQwen3TtsModule.kt) : la vérification du dossier profil comparait `parentFile.name == "profiles"` alors que le parent réel est l'id du profil — les références de profils sauvegardés étaient re-décodées à chaque clonage ; désormais elles passent directement
+- [x] Carte Qwen3-TTS : précision « Réglages fins disponibles : pauses aux ponctuations, vitesse, volume (comme tous les moteurs) » + limite reformulée (le style vocal suit l'échantillon ; le modèle officiel accepte des instructions, pas notre portage local)
+- [x] Test sur émulateur Android (AVD déplacé sur D: pour libérer C:, RAM 4 Go) : clonage avec profil « Voix de Test » + Qwen3 → « Qwen3 wrote 153045 samples » (6,4 s d'audio), génération affichée « Terminé » — plus d'erreur « Call to function ExpoQwen3Tts.cloneVoice has been rejected »

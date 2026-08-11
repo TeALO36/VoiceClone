@@ -66,9 +66,10 @@ export function capabilitiesFor(model: {
         strengths: [
           'Clonage sans transcription (aucun texte requis pour l’échantillon)',
           'Le plus fidèle pour reproduire une voix',
+          'Réglages fins disponibles : pauses aux ponctuations, vitesse, volume (comme tous les moteurs)',
         ],
         limitations: [
-          'Pas de contrôle d’émotion/intonation par texte dans cette version embarquée (le modèle officiel le permet, pas notre portage local)',
+          'Pas de contrôle d’émotion/intonation par texte dans cette version embarquée — le style vocal suit l’échantillon de référence (le modèle officiel accepte des instructions, pas notre portage local)',
         ],
       };
     case 'pocket':

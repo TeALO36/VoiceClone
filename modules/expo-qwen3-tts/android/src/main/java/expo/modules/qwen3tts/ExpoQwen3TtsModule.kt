@@ -57,9 +57,12 @@ class ExpoQwen3TtsModule : Module() {
         val plainPath = if (sourceUri.startsWith("file://")) sourceUri.substring(7) else sourceUri
         val existing = java.io.File(plainPath)
         // Refs we wrote ourselves pass straight through: either fresh ones in the
-        // cache (ref_*.wav) or persisted profile references under profiles/.
+        // cache (ref_*.wav) or persisted profile references under profiles/<id>/.
+        // A saved profile's wavUri is files/profiles/<id>/ref.wav, so the parent
+        // directory is the profile id — check the grandparent for "profiles".
         val inCacheRef = existing.parentFile == cacheDir && existing.name.startsWith("ref_")
-        val inProfileDir = existing.parentFile?.name == "profiles" && existing.exists()
+        val inProfileDir =
+            existing.parentFile?.parentFile?.name == "profiles" && existing.exists()
         if ((inCacheRef || inProfileDir) && existing.exists()) {
             return existing
         }
