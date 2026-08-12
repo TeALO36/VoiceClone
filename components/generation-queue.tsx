@@ -18,7 +18,7 @@ function elapsedLabel(job: GenerationJob, now: number): string {
  */
 export function GenerationQueue({ kind }: { kind: GenerationKind }) {
   const colors = useColors();
-  const { jobs, nowTick, clearJob, clearFinishedJobs } = useTTS();
+  const { jobs, nowTick, clearJob, clearFinishedJobs, modelLoading } = useTTS();
 
   const mine = jobs.filter((job) => job.kind === kind);
   if (mine.length === 0) return null;
@@ -70,7 +70,10 @@ export function GenerationQueue({ kind }: { kind: GenerationKind }) {
                     }}
                   >
                     {job.status === 'queued' && `En attente · ${queuePosition} devant`}
-                    {job.status === 'running' && `Génération… ${elapsedLabel(job, nowTick)}`}
+                    {job.status === 'running' &&
+                      (modelLoading
+                        ? `Chargement du modèle ${modelLoading}… ${elapsedLabel(job, nowTick)}`
+                        : `Génération… ${elapsedLabel(job, nowTick)}`)}
                     {job.status === 'done' && `Terminé en ${elapsedLabel(job, nowTick)}`}
                     {job.status === 'error' && (job.error || 'Échec')}
                   </Text>

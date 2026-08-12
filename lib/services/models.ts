@@ -362,6 +362,22 @@ const MODEL_CATALOG: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
     size: 1_342_925_920 + 273_327_360,
     languages: ['Français', 'English', '中文', '日本語', '한국어', 'Deutsch', 'Русский', 'Português', 'Español', 'Italiano'],
   },
+  {
+    id: 'qwen3-tts-17b',
+    name: 'Qwen3-TTS 1.7B',
+    description: 'Clonage sans transcription — le plus fidèle, plus lent et plus gourmand',
+    // The 1.7B is the same architecture as the 0.6B (config read from the
+    // GGUF), converted with the same script and quantized to Q8_0. It shares
+    // the 12 Hz tokenizer with the 0.6B — the tokenizer GGUF is re-downloaded
+    // into this model's own directory so each install is self-contained.
+    ggufFiles: [
+      { name: 'qwen3-tts-1.7b-q8_0.gguf', url: 'https://huggingface.co/TeALO/qwen3-tts-gguf/resolve/main/qwen3-tts-1.7b-q8_0.gguf' },
+      { name: 'qwen3-tts-tokenizer-f16.gguf', url: 'https://huggingface.co/TeALO/qwen3-tts-gguf/resolve/main/qwen3-tts-tokenizer-f16.gguf' },
+    ],
+    type: 'qwen3',
+    size: 2_456_624_224 + 273_327_360,
+    languages: ['Français', 'English', '中文', '日本語', '한국어', 'Deutsch', 'Русский', 'Português', 'Español', 'Italiano'],
+  },
 ];
 
 // ─── Pocket TTS grouped variants ───

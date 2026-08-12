@@ -12,6 +12,7 @@
  * its default the audio is returned untouched.
  */
 import * as FileSystem from 'expo-file-system/legacy';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import ExpoQwen3TtsModule, {
   QUALITY_STEPS,
   POCKET_QUALITY_STEPS,
@@ -35,6 +36,9 @@ import {
 export type { Qwen3TtsResult, SpeechParams };
 export { DEFAULT_SPEECH_PARAMS };
 export type { TtsEngine, Quality };
+
+/** AsyncStorage key holding the catalog id of the last used model. */
+export const LAST_MODEL_KEY = 'voxclone_last_model_id';
 
 export interface TTSOptions {
   text: string;
@@ -255,23 +259,54 @@ export class OnDeviceTTSService {
   private currentEngine: TtsEngine | null = null;
 
   /**
+   * Notified while a checkpoint is being loaded into the native engine.
+   * Loading a multi-hundred-MB GGUF can take tens of seconds on slow
+   * devices — the UI shows this instead of a silent spinner.
+   */
+  onLoadingChange: ((loading: boolean, engine?: TtsEngine) => void) | null = null;
+
+  // The native engine holds ONE model in a global, so native loads must be
+  // strictly serialized: a background warm-up and a user request can never
+  // race on the same JNI slot. Each call chains onto the previous one.
+  private loadQueue: Promise<void> = Promise.resolve();
+
+  /**
    * Load a model directory into the native engine.
    * Model must be downloaded first via the models service.
    */
-  async initModel(modelDir: string, engine: TtsEngine): Promise<void> {
-    if (this.currentModelDir === modelDir && this.currentEngine === engine) {
-      if (await ExpoQwen3TtsModule.isModelReady()) return;
-    }
+  initModel(modelDir: string, engine: TtsEngine): Promise<void> {
+    const load = async (): Promise<void> => {
+      if (this.currentModelDir === modelDir && this.currentEngine === engine) {
+        if (await ExpoQwen3TtsModule.isModelReady()) return;
+      }
 
-    // Switching models: drop the previous one first so two multi-hundred-MB
-    // checkpoints are never mapped at the same time.
-    if (this.currentModelDir && this.currentModelDir !== modelDir) {
-      await this.release();
-    }
+      // Switching models: drop the previous one first so two multi-hundred-MB
+      // checkpoints are never mapped at the same time.
+      if (this.currentModelDir && this.currentModelDir !== modelDir) {
+        await this.release();
+      }
 
-    await ExpoQwen3TtsModule.initModel(modelDir, engine);
-    this.currentModelDir = modelDir;
-    this.currentEngine = engine;
+      this.onLoadingChange?.(true, engine);
+      try {
+        await ExpoQwen3TtsModule.initModel(modelDir, engine);
+        this.currentModelDir = modelDir;
+        this.currentEngine = engine;
+        // Remember the last engine used so the app can warm it up in the
+        // background on the next launch (model dirs are named after the
+        // catalog id, e.g. .../models/qwen3-tts-06b).
+        try {
+          const last = modelDir.split('/').filter(Boolean).pop();
+          if (last) await AsyncStorage.setItem(LAST_MODEL_KEY, last);
+        } catch {
+          // Best effort — a warm-up miss is not worth failing a synthesis.
+        }
+      } finally {
+        this.onLoadingChange?.(false);
+      }
+    };
+
+    this.loadQueue = this.loadQueue.then(load, load);
+    return this.loadQueue;
   }
 
   /** Synthesize text to a WAV file on disk and return its URI. */

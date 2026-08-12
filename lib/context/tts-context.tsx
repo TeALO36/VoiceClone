@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
 import { modelsService, TTSModel, ModelState } from '@/lib/services/models';
-import { onDeviceTts, OnDeviceTTSService } from '@/lib/services/local-tts';
+import { onDeviceTts, OnDeviceTTSService, LAST_MODEL_KEY } from '@/lib/services/local-tts';
 import type { Qwen3TtsResult } from '@/modules/expo-qwen3-tts';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -45,6 +45,8 @@ export interface TTSContextType {
   // ── Generation queue ──
   /** All jobs, newest last. Finished ones stay until cleared. */
   jobs: GenerationJob[];
+  /** Engine name while a checkpoint is loading natively, or null when idle. */
+  modelLoading: string | null;
   /** Queue a generation. Returns the job id so a screen can follow just its own. */
   enqueueGeneration: (
     kind: GenerationKind,
@@ -97,6 +99,10 @@ export function TTSProvider({ children }: { children: ReactNode }) {
   const [freeStorage, setFreeStorage] = useState(0);
   const [jobs, setJobs] = useState<GenerationJob[]>([]);
   const [nowTick, setNowTick] = useState(() => Date.now());
+  // Non-null while a checkpoint is being loaded into the native engine (a
+  // multi-hundred-MB GGUF can take tens of seconds). Carries the engine name
+  // so the queue can say « Chargement du modèle… » instead of a silent spinner.
+  const [modelLoading, setModelLoading] = useState<string | null>(null);
 
   const refreshModels = useCallback(async () => {
     try {
@@ -113,6 +119,45 @@ export function TTSProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refreshModels();
   }, [refreshModels]);
+
+  // Surface the native model-loading phase to the generation queue. Loading a
+  // Qwen3/OmniVoice checkpoint can take 30-80 s on slow devices — the generic
+  // « Génération… » spinner made it look like the app was stuck.
+  useEffect(() => {
+    onDeviceTts.onLoadingChange = (loading, engine) => {
+      if (!loading) {
+        setModelLoading(null);
+        return;
+      }
+      const name =
+        engine === 'qwen3' ? 'Qwen3-TTS' : engine === 'omnivoice' ? 'OmniVoice' : 'Pocket TTS';
+      setModelLoading(name);
+    };
+    return () => {
+      onDeviceTts.onLoadingChange = null;
+    };
+  }, []);
+
+  // Warm-up: load the last-used engine in the background on launch so the
+  // first generation does not pay the full model-loading cost (tens of seconds
+  // for the Qwen3/OmniVoice checkpoints). Best effort — a failure is silent,
+  // the model loads normally on first use.
+  useEffect(() => {
+    if (installedModels.length === 0) return;
+    (async () => {
+      try {
+        const lastId = await AsyncStorage.getItem(LAST_MODEL_KEY);
+        if (!lastId) return;
+        const model = installedModels.find((m) => m.id === lastId);
+        // Pocket loads in a second and is never the slow one — skip it.
+        if (!model || model.type === 'pocket') return;
+        const dir = await modelsService.getModelPath(model.id);
+        if (dir) await onDeviceTts.initModel(dir, model.type);
+      } catch {
+        // Best effort warm-up — never block or crash startup.
+      }
+    })();
+  }, [installedModels]);
 
   // Restore the persisted generation history on launch.
   useEffect(() => {
@@ -325,6 +370,7 @@ export function TTSProvider({ children }: { children: ReactNode }) {
     clearJob,
     clearFinishedJobs,
     nowTick,
+    modelLoading,
   };
 
   return <TTSContext.Provider value={value}>{children}</TTSContext.Provider>;
