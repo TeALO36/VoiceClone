@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import { getLanguagesForModel } from '@/lib/services/local-tts';
 import type { Quality } from '@/modules/expo-qwen3-tts';
-import type { VoiceProfile } from '@/lib/services/profiles';
+import { createProfileId, type VoiceProfile } from '@/lib/services/profiles';
 import { DEFAULT_SPEECH_PARAMS, type SpeechParams } from '@/lib/services/audio-pipeline';
 
 export default function VoiceCloningScreen() {
@@ -152,7 +152,16 @@ export default function VoiceCloningScreen() {
       return;
     }
 
-    const base = selectedProfileId ? { id: selectedProfileId } : {};
+    // Saving under the same name as the selected profile = updating that
+    // profile. Any other name = a brand-new profile. Never reuse the selected
+    // profile's id when saving a different voice (it would silently overwrite
+    // the existing profile), and always give a new profile a real id (a
+    // missing id made the profile unselectable).
+    const selectedProfile = profiles.find((p) => p.id === selectedProfileId);
+    const base =
+      selectedProfile && selectedProfile.name.trim() === name
+        ? { id: selectedProfile.id }
+        : { id: createProfileId() };
     await saveProfile(
       {
         ...base,

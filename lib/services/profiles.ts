@@ -53,7 +53,48 @@ export function referenceWavPath(id: string): string {
 async function readProfiles(): Promise<VoiceProfile[]> {
   try {
     const stored = await AsyncStorage.getItem(STORAGE_KEY);
-    return stored ? (JSON.parse(stored) as VoiceProfile[]) : [];
+    if (!stored) return [];
+    const parsed = JSON.parse(stored) as VoiceProfile[];
+
+    // Repair profiles saved without an id (the cloning screen's "save as
+    // profile" used to leave profile.id undefined — a profile literally
+    // stored as "undefined"). Such a profile can never be selected again
+    // (its tap collapses to "Aucun profil"). Give it a real id and, when its
+    // reference WAV still lives in the shared "undefined" directory, copy it
+    // into the profile's own directory.
+    let repaired = false;
+    const fixed: VoiceProfile[] = [];
+    for (const profile of parsed) {
+      if (profile.id) {
+        fixed.push(profile);
+        continue;
+      }
+      repaired = true;
+      const id = createProfileId();
+      const updated: VoiceProfile = { ...profile, id };
+      const uri = updated.reference?.wavUri;
+      if (uri && uri.includes('/undefined/')) {
+        const target = referenceWavPath(id);
+        try {
+          const dirInfo = await FileSystem.getInfoAsync(profileDir(id));
+          if (!dirInfo.exists) {
+            await FileSystem.makeDirectoryAsync(profileDir(id), { intermediates: true });
+          }
+          const sourceInfo = await FileSystem.getInfoAsync(uri);
+          if (sourceInfo.exists) {
+            await FileSystem.copyAsync({ from: uri, to: target });
+            updated.reference = { ...updated.reference!, wavUri: target };
+          }
+        } catch (error) {
+          console.warn('Failed to repair profile reference:', error);
+        }
+      }
+      fixed.push(updated);
+    }
+    if (repaired) {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(fixed));
+    }
+    return fixed;
   } catch (error) {
     console.warn('Failed to read voice profiles:', error);
     return [];
@@ -83,20 +124,24 @@ export const profilesService = {
     profile: VoiceProfile,
     referenceWavSource?: string
   ): Promise<VoiceProfile> {
+    // Defensive: every persisted profile needs an id. A caller that forgets
+    // it (the cloning screen's save used to) would otherwise write a profile
+    // with id undefined — unselectable and unhighlightable.
+    const withId = profile.id ? profile : { ...profile, id: createProfileId() };
     const profiles = await readProfiles();
 
-    if (profile.reference && referenceWavSource) {
+    if (withId.reference && referenceWavSource) {
       // Keep the file:// scheme on both URIs: expo-file-system treats a raw
       // path as an Android resource name, so a bare path would make the copy
       // below throw and, before that, make getInfoAsync report the source as
       // missing (which silently skipped the copy and left the profile
       // pointing at a cache file that the native layer cleans after an hour).
-      const target = referenceWavPath(profile.id);
+      const target = referenceWavPath(withId.id);
       const sourcePath = referenceWavSource;
       if (sourcePath !== target) {
-        const dirInfo = await FileSystem.getInfoAsync(profileDir(profile.id));
+        const dirInfo = await FileSystem.getInfoAsync(profileDir(withId.id));
         if (!dirInfo.exists) {
-          await FileSystem.makeDirectoryAsync(profileDir(profile.id), { intermediates: true });
+          await FileSystem.makeDirectoryAsync(profileDir(withId.id), { intermediates: true });
         }
         const sourceInfo = await FileSystem.getInfoAsync(sourcePath);
         if (sourceInfo.exists) {
@@ -104,13 +149,13 @@ export const profilesService = {
           // preview in the cloning screen. `target` already carries file://
           // (referenceWavPath is built from documentDirectory).
           await FileSystem.copyAsync({ from: sourcePath, to: target });
-          profile.reference = { ...profile.reference, wavUri: target };
+          withId.reference = { ...withId.reference, wavUri: target };
         }
       }
     }
 
-    const updated: VoiceProfile = { ...profile, updatedAt: Date.now() };
-    const index = profiles.findIndex((p) => p.id === profile.id);
+    const updated: VoiceProfile = { ...withId, updatedAt: Date.now() };
+    const index = profiles.findIndex((p) => p.id === withId.id);
     if (index >= 0) {
       profiles[index] = updated;
     } else {

@@ -38,14 +38,16 @@ export function ProfilePicker({ selectedId, onSelect }: ProfilePickerProps) {
         className="text-sm font-semibold"
         style={{ color: active ? 'white' : colors.foreground }}
       >
-        {emoji ? `${emoji} ` : ''}{label}
+        {active ? '✓ ' : ''}{emoji ? `${emoji} ` : ''}{label}
       </Text>
     </Pressable>
   );
 
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4">
-      {chip(selectedId === null, () => onSelect(null), 'Aucun profil', '🚫')}
+      <View key="none">
+        {chip(selectedId === null, () => onSelect(null), 'Aucun profil', '🚫')}
+      </View>
       {profiles.map((profile) => (
         <View key={profile.id}>
           {chip(
