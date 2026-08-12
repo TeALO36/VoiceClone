@@ -1,0 +1,9 @@
+{
+  "platforms": ["android", "ios"],
+  "android": {
+    "modules": ["expo.modules.f5tts.F5TtsModule"]
+  },
+  "ios": {
+    "modules": ["F5TtsModule"]
+  }
+}

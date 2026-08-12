@@ -43,7 +43,10 @@ export default function VoiceCloningScreen() {
   // Qwen3-TTS reads the voice off a speaker encoder and ignores any transcript.
   // OmniVoice can use one for extra context but clones fine without it.
   // Pocket TTS does not need a transcript at all.
-  const usesRefText = activeModel?.type === 'omnivoice';
+  // F5-TTS NEEDS it: the model aligns the reference audio against its
+  // transcript, so cloning quality drops sharply when it is empty.
+  const usesRefText =
+    activeModel?.type === 'omnivoice' || activeModel?.type === 'f5';
   const LANGUAGES = getLanguagesForModel(activeModel);
   const effectiveLanguage = LANGUAGES.some((l) => l.id === selectedLanguage)
     ? selectedLanguage
@@ -73,6 +76,8 @@ export default function VoiceCloningScreen() {
         size: 0,
       });
     }
+    // Restore the saved reference transcript (F5-TTS needs it).
+    setRefText(profile.referenceText ?? '');
   }, [applyProfileReference]);
 
   // « Utiliser » (Profils tab) → arrive with ?profileId=… : select the profile
@@ -176,6 +181,7 @@ export default function VoiceCloningScreen() {
           wavUri: picker.reference.wavUri,
           duration: picker.reference.duration ?? 0,
         },
+        referenceText: refText.trim() || undefined,
       } as VoiceProfile,
       // saveProfile skips the copy when the source is already the profile's
       // own persisted file.
@@ -285,7 +291,7 @@ export default function VoiceCloningScreen() {
           </View>
         )}
 
-        {/* Reference transcript — OmniVoice only */}
+        {/* Reference transcript — OmniVoice / F5-TTS */}
         {picker.isReady && usesRefText && (
           <View className="px-6 mb-6">
             <Text className="text-sm font-semibold text-foreground mb-1">
@@ -293,6 +299,7 @@ export default function VoiceCloningScreen() {
             </Text>
             <Text className="text-xs text-muted mb-3">
               Recopier ce qui est prononcé donne au moteur un repère de plus et améliore la ressemblance.
+              {activeModel?.type === 'f5' && ' Obligatoire pour F5-TTS : sans transcription, la qualité du clonage chute.'}
             </Text>
             <TextInput
               value={refText}
@@ -337,8 +344,9 @@ export default function VoiceCloningScreen() {
               })}
             </View>
             <Text className="text-xs text-muted mt-2">
-              La génération est lourde : comptez plusieurs dizaines de secondes par phrase.
-              Pocket TTS est beaucoup plus rapide.
+              {activeModel?.type === 'f5'
+                ? 'F5-TTS est un moteur de 335M : comptez plusieurs dizaines de secondes par phrase sur mobile.'
+                : 'La génération est lourde : comptez plusieurs dizaines de secondes par phrase. Pocket TTS est beaucoup plus rapide.'}
             </Text>
           </View>
         )}

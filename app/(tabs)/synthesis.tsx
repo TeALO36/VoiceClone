@@ -99,6 +99,9 @@ export default function SynthesisScreen() {
           modelDir,
           engine: model.type,
           language,
+          // F5-TTS aligns the reference audio against its transcript — a
+          // profile saved without one falls back to an empty string.
+          referenceText: model.type === 'f5' ? profile.referenceText ?? '' : undefined,
           params: chosenParams,
         });
       }
@@ -225,6 +228,11 @@ export default function SynthesisScreen() {
             {activeModel?.type === 'qwen3' ? (
               <Text className="text-xs text-muted">
                 Qwen3-TTS n&apos;expose pas de choix de voix — la voix est définie par le modèle.
+              </Text>
+            ) : activeModel?.type === 'f5' ? (
+              <Text className="text-xs text-muted">
+                F5-TTS utilise la voix de l&apos;échantillon de référence (profil de voix
+                ou voix par défaut fournie avec le modèle).
               </Text>
             ) : (
               <FlatList

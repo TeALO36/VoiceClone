@@ -6,7 +6,7 @@ export interface TTSModel {
   name: string;
   description: string;
   ggufFiles: { name: string; url: string; expectedSize?: number }[];
-  type: 'qwen3' | 'omnivoice' | 'pocket';
+  type: 'qwen3' | 'omnivoice' | 'pocket' | 'f5';
   size: number;
   languages: string[];
   /**
@@ -81,6 +81,19 @@ export function capabilitiesFor(model: {
         ],
         limitations: [
           'La voix est celle de l’échantillon de référence (pas de style modifiable par texte)',
+        ],
+      };
+    case 'f5':
+      return {
+        instruct: 'none',
+        strengths: [
+          'Le plus expressif : flow matching — la prosodie, l’intonation et l’émotion de l’échantillon de référence sont préservées dans l’audio généré',
+          'Français, anglais et chinois',
+          'Vocodeur haute fidélité (24 kHz)',
+        ],
+        limitations: [
+          'L’émotion suit l’échantillon de référence — pas de séquence d’émotions décrite en texte (ex. « d’abord triste, puis elle rit »)',
+          '335M de paramètres et 32 étapes de flow matching : le plus lent et le plus gourmand en mémoire',
         ],
       };
   }
@@ -377,6 +390,28 @@ const MODEL_CATALOG: Omit<TTSModel, 'isInstalled' | 'downloadedAt'>[] = [
     type: 'qwen3',
     size: 2_456_624_224 + 273_327_360,
     languages: ['Français', 'English', '中文', '日本語', '한국어', 'Deutsch', 'Русский', 'Português', 'Español', 'Italiano'],
+  },
+  {
+    id: 'f5-tts',
+    name: 'F5-TTS',
+    description: 'Clonage par référence — le plus expressif, l’émotion de l’échantillon est préservée',
+    // DakeQQ's ONNX port of the official SWivid F5-TTS v1 Base checkpoint,
+    // hosted on TeALO/f5-tts-onnx-models. The transformer is the MatMul/Gemm
+    // int8 build (5× faster on CPU than fp32, near-identical output). F5-TTS
+    // is a zero-shot voice-cloning engine: it always conditions on a reference
+    // (audio + transcript), so the package ships a bundled French default
+    // voice (voices/ref.wav + voices/ref.txt) for plain TTS without a profile.
+    ggufFiles: [
+      { name: 'F5_Preprocess.onnx', url: 'https://huggingface.co/TeALO/f5-tts-onnx-models/resolve/main/F5_Preprocess.onnx', expectedSize: 68_549_853 },
+      { name: 'F5_Transformer.int8.onnx', url: 'https://huggingface.co/TeALO/f5-tts-onnx-models/resolve/main/F5_Transformer.int8.onnx', expectedSize: 344_258_109 },
+      { name: 'F5_Decode.onnx', url: 'https://huggingface.co/TeALO/f5-tts-onnx-models/resolve/main/F5_Decode.onnx', expectedSize: 62_550_703 },
+      { name: 'vocab.txt', url: 'https://huggingface.co/TeALO/f5-tts-onnx-models/resolve/main/vocab.txt', expectedSize: 13_800 },
+      { name: 'voices/ref.wav', url: 'https://huggingface.co/TeALO/f5-tts-onnx-models/resolve/main/voices/ref.wav', expectedSize: 455_212 },
+      { name: 'voices/ref.txt', url: 'https://huggingface.co/TeALO/f5-tts-onnx-models/resolve/main/voices/ref.txt', expectedSize: 89 },
+    ],
+    type: 'f5',
+    size: 68_549_853 + 344_258_109 + 62_550_703 + 13_800 + 455_212 + 89,
+    languages: ['Français', 'English', '中文'],
   },
 ];
 

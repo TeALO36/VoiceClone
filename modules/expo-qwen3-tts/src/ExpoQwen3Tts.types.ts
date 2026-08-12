@@ -2,7 +2,7 @@
  * Shared types for the on-device TTS module.
  */
 
-export type TtsEngine = 'omnivoice' | 'qwen3' | 'pocket';
+export type TtsEngine = 'omnivoice' | 'qwen3' | 'pocket' | 'f5';
 
 export interface PreparedReference {
   /** file:// URI of the converted 24 kHz mono WAV */

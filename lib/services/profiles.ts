@@ -33,6 +33,12 @@ export interface VoiceProfile {
   language: string;
   /** Absent = classic TTS with a preset/bundled voice. */
   reference?: VoiceReference;
+  /**
+   * Transcript of the reference clip, when the user typed it. F5-TTS needs it
+   * to align the reference audio with the text (voice cloning quality drops
+   * sharply without it); other engines treat it as optional context.
+   */
+  referenceText?: string;
   params: SpeechParams;
 }
 

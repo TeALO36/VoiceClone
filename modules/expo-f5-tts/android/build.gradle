@@ -1,0 +1,25 @@
+apply plugin: 'com.android.library'
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useDefaultAndroidSdkVersions()
+useCoreDependencies()
+
+android {
+    namespace 'expo.modules.f5tts'
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // ONNX Runtime Android — pure Java/Kotlin API on top of the native .so.
+    // Pinned to 1.27.0, the same version the embedded sherpa-onnx in the
+    // expo-qwen3-tts module ships: both provide lib/ABI/libonnxruntime.so and
+    // identical files are deduplicated at merge time. minSdk 24, matching the
+    // app (verified in the AAR manifest).
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.27.0'
+}

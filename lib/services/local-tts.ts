@@ -17,6 +17,9 @@ import ExpoQwen3TtsModule, {
   QUALITY_STEPS,
   POCKET_QUALITY_STEPS,
 } from '@/modules/expo-qwen3-tts/src/ExpoQwen3TtsModule';
+import ExpoF5TtsModule, {
+  F5_QUALITY_STEPS,
+} from '@/modules/expo-f5-tts/src/ExpoF5TtsModule';
 import type { Qwen3TtsResult, TtsEngine, Quality } from '@/modules/expo-qwen3-tts';
 import {
   DEFAULT_SPEECH_PARAMS,
@@ -90,6 +93,11 @@ export interface CloneOptions {
 // is a separate catalog entry, so the picker is locked to the model's language.
 const QWEN3_LANGUAGES = new Set(['zh', 'en', 'ja', 'ko', 'de', 'fr', 'ru', 'pt', 'es', 'it']);
 const POCKET_LANGUAGES = new Set(['en', 'fr', 'de', 'pt', 'it', 'es']);
+// F5-TTS v1 Base was trained on English + Chinese, and its vocab covers all
+// French accented characters (only 4 rare uppercase accented chars fall back
+// to the blank token). The other official scripts (ja/ko/…) are out of scope
+// for this build.
+const F5_LANGUAGES = new Set(['fr', 'en', 'zh']);
 
 export function getSupportedLanguages(
   engine?: TtsEngine
@@ -97,6 +105,7 @@ export function getSupportedLanguages(
   const all = allLanguages();
   if (engine === 'qwen3') return all.filter((l) => QWEN3_LANGUAGES.has(l.id));
   if (engine === 'pocket') return all.filter((l) => POCKET_LANGUAGES.has(l.id));
+  if (engine === 'f5') return all.filter((l) => F5_LANGUAGES.has(l.id));
   return all;
 }
 
@@ -250,7 +259,30 @@ export function pocketDefaultReference(modelDir: string): string {
   return `${modelDir}/voices/bria.wav`;
 }
 
+/**
+ * The bundled default reference voice used for F5-TTS plain TTS (a French
+ * clip shipped with the model, generated from the app itself).
+ */
+export function f5DefaultReference(modelDir: string): string {
+  return `${modelDir}/voices/ref.wav`;
+}
+
+/** Transcript of the bundled F5-TTS default voice (voices/ref.txt). */
+export async function f5DefaultReferenceText(modelDir: string): Promise<string> {
+  try {
+    const uri = `${modelDir}/voices/ref.txt`;
+    const info = await FileSystem.getInfoAsync(uri);
+    if (info.exists) {
+      return (await FileSystem.readAsStringAsync(uri)).trim();
+    }
+  } catch {
+    // Fall through to the fallback below.
+  }
+  return 'Bonjour, ceci est la voix par défaut de la synthèse vocale.';
+}
+
 function engineSteps(engine: TtsEngine, quality: Quality): number {
+  if (engine === 'f5') return F5_QUALITY_STEPS[quality];
   return engine === 'pocket' ? POCKET_QUALITY_STEPS[quality] : QUALITY_STEPS[quality];
 }
 
@@ -277,7 +309,11 @@ export class OnDeviceTTSService {
   initModel(modelDir: string, engine: TtsEngine): Promise<void> {
     const load = async (): Promise<void> => {
       if (this.currentModelDir === modelDir && this.currentEngine === engine) {
-        if (await ExpoQwen3TtsModule.isModelReady()) return;
+        const ready =
+          engine === 'f5'
+            ? await ExpoF5TtsModule.isModelReady()
+            : await ExpoQwen3TtsModule.isModelReady();
+        if (ready) return;
       }
 
       // Switching models: drop the previous one first so two multi-hundred-MB
@@ -288,7 +324,13 @@ export class OnDeviceTTSService {
 
       this.onLoadingChange?.(true, engine);
       try {
-        await ExpoQwen3TtsModule.initModel(modelDir, engine);
+        if (engine === 'f5') {
+          // F5-TTS keeps its own ONNX sessions (separate from the shared
+          // OmniVoice/Qwen3/Pocket slot).
+          await ExpoF5TtsModule.initModel(modelDir);
+        } else {
+          await ExpoQwen3TtsModule.initModel(modelDir, engine);
+        }
         this.currentModelDir = modelDir;
         this.currentEngine = engine;
         // Remember the last engine used so the app can warm it up in the
@@ -320,8 +362,17 @@ export class OnDeviceTTSService {
 
     // Pocket TTS has no "plain" synthesis: it always speaks with a reference
     // voice. Without an explicit one, use the bundled default.
+    // F5-TTS is the same: it always conditions on a reference voice AND its
+    // transcript. Without an explicit reference, use the bundled default voice
+    // and read its transcript from the model dir.
     let refAudioUri = options.referenceAudioUri;
-    if (options.engine === 'pocket' && !refAudioUri) {
+    let refText = '';
+    if (options.engine === 'f5') {
+      if (!refAudioUri) {
+        refAudioUri = f5DefaultReference(options.modelDir);
+        refText = await f5DefaultReferenceText(options.modelDir);
+      }
+    } else if (options.engine === 'pocket' && !refAudioUri) {
       refAudioUri = pocketDefaultReference(options.modelDir);
     }
 
@@ -338,7 +389,7 @@ export class OnDeviceTTSService {
           modelDir: options.modelDir,
           engine: options.engine,
           language: options.language,
-          referenceText: '',
+          referenceText: refText,
           quality: options.quality ?? 'best',
         })
       : await this.rawSynthesize(options);
@@ -365,6 +416,9 @@ export class OnDeviceTTSService {
   // ── Raw engine calls (no post-processing — the caller owns params) ──
 
   private async rawSynthesize(options: TTSOptions): Promise<Qwen3TtsResult> {
+    if (options.engine === 'f5') {
+      throw new Error('F5-TTS requiert une voix de référence');
+    }
     return ExpoQwen3TtsModule.synthesize(
       options.text.trim(),
       options.language ?? '',
@@ -374,6 +428,17 @@ export class OnDeviceTTSService {
   }
 
   private async rawCloneVoice(options: CloneOptions): Promise<Qwen3TtsResult> {
+    if (options.engine === 'f5') {
+      // F5-TTS is a zero-shot voice-cloning engine: the reference (audio +
+      // transcript) IS the conditioning, there is no separate "clone" call.
+      return ExpoF5TtsModule.synthesize(
+        options.text.trim(),
+        options.referenceText?.trim() ?? '',
+        options.referenceAudioUri,
+        1.0,
+        engineSteps(options.engine, options.quality ?? 'best')
+      ) as Promise<Qwen3TtsResult>;
+    }
     return ExpoQwen3TtsModule.cloneVoice(
       options.text.trim(),
       options.language ?? '',
@@ -438,7 +503,12 @@ export class OnDeviceTTSService {
    * Release the currently loaded model to free memory.
    */
   async release(): Promise<void> {
-    await ExpoQwen3TtsModule.releaseModel();
+    // F5-TTS has its own ONNX sessions — release both slots so switching
+    // models never leaves a multi-hundred-MB checkpoint mapped.
+    await Promise.allSettled([
+      ExpoQwen3TtsModule.releaseModel(),
+      ExpoF5TtsModule.releaseModel(),
+    ]);
     this.currentModelDir = null;
     this.currentEngine = null;
   }

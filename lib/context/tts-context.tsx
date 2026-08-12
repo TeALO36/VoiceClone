@@ -130,7 +130,10 @@ export function TTSProvider({ children }: { children: ReactNode }) {
         return;
       }
       const name =
-        engine === 'qwen3' ? 'Qwen3-TTS' : engine === 'omnivoice' ? 'OmniVoice' : 'Pocket TTS';
+        engine === 'qwen3' ? 'Qwen3-TTS'
+        : engine === 'omnivoice' ? 'OmniVoice'
+        : engine === 'f5' ? 'F5-TTS'
+        : 'Pocket TTS';
       setModelLoading(name);
     };
     return () => {
@@ -150,7 +153,9 @@ export function TTSProvider({ children }: { children: ReactNode }) {
         if (!lastId) return;
         const model = installedModels.find((m) => m.id === lastId);
         // Pocket loads in a second and is never the slow one — skip it.
-        if (!model || model.type === 'pocket') return;
+        // F5-TTS loads three ONNX graphs (a 1+ GB fp32 transformer) — warming
+        // it up at startup would fight for memory with the other engines.
+        if (!model || model.type === 'pocket' || model.type === 'f5') return;
         const dir = await modelsService.getModelPath(model.id);
         if (dir) await onDeviceTts.initModel(dir, model.type);
       } catch {
