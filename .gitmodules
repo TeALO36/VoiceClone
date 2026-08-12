@@ -1,6 +1,8 @@
 [submodule "qwen3-tts-cpp"]
 	path = qwen3-tts-cpp
-	url = https://github.com/predict-woo/qwen3-tts.cpp.git
+	# TeALO fork — carries the 1.7B support + 64-bit seek fixes that are not
+	# in predict-woo's upstream (which has no 1.7B support).
+	url = https://github.com/TeALO36/qwen3-tts.cpp.git
 [submodule "omnivoice-cpp"]
 	path = omnivoice-cpp
 	url = https://github.com/ServeurpersoCom/omnivoice.cpp.git
