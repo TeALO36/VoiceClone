@@ -460,7 +460,13 @@ jint run_synthesis(JNIEnv * env,
         // An octave collapse is 12, so 6 separates the two without false alarms.
         const float kMaxPitchDriftSemitones = 6.0f;
 
+        // Keep the closest take rather than the last one tried. Every retry is
+        // an independent random draw, so ending the loop on attempt 3 would
+        // hand back whatever that draw produced — including a take worse than
+        // one already rejected. Should the pitch check ever misfire on a good
+        // voice, the cost is then only wasted time, never worse audio.
         const SherpaOnnxGeneratedAudio * audio = nullptr;
+        float best_drift = 1e9f;
         const int kMaxAttempts = 3;
         for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
             std::string extra_json =
@@ -469,42 +475,54 @@ jint run_synthesis(JNIEnv * env,
             extra_json += "}";
             cfg.extra = extra_json.c_str();   // valid until the next generate()
 
-            if (audio) { g_pocket_api.free_audio(audio); audio = nullptr; }
-            audio = g_pocket_api.generate(g_pocket, text.c_str(), &cfg,
-                                          nullptr, nullptr);
-            if (!audio || audio->n <= 0) {
+            const SherpaOnnxGeneratedAudio * take =
+                g_pocket_api.generate(g_pocket, text.c_str(), &cfg, nullptr, nullptr);
+            if (!take || take->n <= 0) {
+                if (take) g_pocket_api.free_audio(take);
+                if (audio) break;          // a previous take is still usable
                 g_last_error = "Pocket TTS generation failed";
-                if (audio) g_pocket_api.free_audio(audio);
                 LOGE("%s", g_last_error.c_str());
                 return -1;
             }
 
             // Truncation check: if the final ~80 ms still carries speech-level
             // energy, EOS fired while the last word was sounding. Retry.
-            const int32_t sr = audio->sample_rate > 0 ? audio->sample_rate : 24000;
-            const int32_t tail = (int32_t)std::min<size_t>(audio->n, (size_t)(sr * 0.08));
+            const int32_t sr = take->sample_rate > 0 ? take->sample_rate : 24000;
+            const int32_t tail = (int32_t)std::min<size_t>(take->n, (size_t)(sr * 0.08));
             float peak = 0.0f;
-            for (int32_t i = audio->n - tail; i < audio->n; ++i) {
-                const float v = audio->samples[i] < 0 ? -audio->samples[i]
-                                                      : audio->samples[i];
+            for (int32_t i = take->n - tail; i < take->n; ++i) {
+                const float v = take->samples[i] < 0 ? -take->samples[i]
+                                                     : take->samples[i];
                 if (v > peak) peak = v;
             }
             const bool truncated = (peak >= 0.02f);
 
+            float drift = 0.0f;
             bool wrong_pitch = false;
             if (ref_f0 > 0.0f) {
-                const float gen_f0 = estimate_f0_median(audio->samples, audio->n, sr);
+                const float gen_f0 = estimate_f0_median(take->samples, take->n, sr);
                 if (gen_f0 > 0.0f) {
-                    const float semitones = 12.0f * std::log2(gen_f0 / ref_f0);
-                    wrong_pitch = std::fabs(semitones) > kMaxPitchDriftSemitones;
+                    drift = std::fabs(12.0f * std::log2(gen_f0 / ref_f0));
+                    wrong_pitch = drift > kMaxPitchDriftSemitones;
                     if (wrong_pitch) {
-                        LOGD("Pocket: pitch %.0f Hz vs reference %.0f Hz (%+.1f semitones), retrying %d/%d",
-                             gen_f0, ref_f0, semitones, attempt + 1, kMaxAttempts);
+                        LOGD("Pocket: pitch %.0f Hz vs reference %.0f Hz (%.1f semitones off), retrying %d/%d",
+                             gen_f0, ref_f0, drift, attempt + 1, kMaxAttempts);
                     }
                 }
             }
+            // A truncated take is ranked behind any untruncated one so the two
+            // checks cannot trade against each other.
+            const float score = drift + (truncated ? 100.0f : 0.0f);
 
-            if ((!truncated && !wrong_pitch) || attempt == kMaxAttempts - 1) break;
+            if (score < best_drift) {
+                if (audio) g_pocket_api.free_audio(audio);
+                audio = take;
+                best_drift = score;
+            } else {
+                g_pocket_api.free_audio(take);
+            }
+
+            if (!truncated && !wrong_pitch) break;
             if (truncated) {
                 LOGD("Pocket: truncated ending (tail peak %.3f), retrying %d/%d",
                      peak, attempt + 1, kMaxAttempts);

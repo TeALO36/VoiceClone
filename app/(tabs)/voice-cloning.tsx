@@ -14,7 +14,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { getLanguagesForModel } from '@/lib/services/local-tts';
 import type { Quality } from '@/modules/expo-qwen3-tts';
 import { createProfileId, type VoiceProfile } from '@/lib/services/profiles';
-import { DEFAULT_CLONE_PARAMS, type SpeechParams } from '@/lib/services/audio-pipeline';
+import { DEFAULT_SPEECH_PARAMS, type SpeechParams } from '@/lib/services/audio-pipeline';
 
 export default function VoiceCloningScreen() {
   const colors = useColors();
@@ -30,7 +30,7 @@ export default function VoiceCloningScreen() {
   const [selectedModelId, setSelectedModelId] = useState<string>('');
   const [refText, setRefText] = useState('');
   const [quality, setQuality] = useState<Quality>('best');
-  const [params, setParams] = useState<SpeechParams>({ ...DEFAULT_CLONE_PARAMS });
+  const [params, setParams] = useState<SpeechParams>({ ...DEFAULT_SPEECH_PARAMS });
   const [saveName, setSaveName] = useState('');
   const [showSave, setShowSave] = useState(false);
 
@@ -60,7 +60,7 @@ export default function VoiceCloningScreen() {
       // Keep the user's own picked reference; just reset model/lang/params.
       setSelectedModelId('');
       setSelectedLanguage('fr');
-      setParams({ ...DEFAULT_CLONE_PARAMS });
+      setParams({ ...DEFAULT_SPEECH_PARAMS });
       return;
     }
     setSelectedModelId(profile.modelId);
@@ -355,11 +355,7 @@ export default function VoiceCloningScreen() {
         {picker.isReady && (
           <View className="px-6 mb-6">
             <View className="bg-surface border border-border rounded-2xl px-4 py-3">
-              <AdvancedParamsEditor
-                params={params}
-                onChange={setParams}
-                baseline={DEFAULT_CLONE_PARAMS}
-              />
+              <AdvancedParamsEditor params={params} onChange={setParams} />
             </View>
           </View>
         )}
