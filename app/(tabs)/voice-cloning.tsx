@@ -453,7 +453,7 @@ export default function VoiceCloningScreen() {
           </View>
         )}
 
-        <GenerationQueue kind="clone" />
+        <GenerationQueue kind="clone" showProfileFilter />
       </ScrollView>
     </ScreenContainer>
   );
