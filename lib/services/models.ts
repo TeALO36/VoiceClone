@@ -647,8 +647,13 @@ class ModelsService {
       const needed = model.size * 1.1;
       const available = free - reservedBytes();
       if (available < needed) {
+        // Quote `needed`, not `model.size`. The check demands a 10% margin on
+        // top of the model, so reporting the bare model size could read as
+        // "1.6 GB required, 1.7 GB available" on a refused install — telling
+        // the user there is enough room for a download that just refused.
         throw new Error(
-          `Espace insuffisant : ${formatBytes(model.size)} nécessaires, ` +
+          `Espace insuffisant : ${formatBytes(needed)} nécessaires ` +
+          `(${formatBytes(model.size)} de modèle + marge), ` +
           `${formatBytes(Math.max(0, available))} disponibles.`
         );
       }
