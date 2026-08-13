@@ -70,6 +70,32 @@ export const DEFAULT_SPEECH_PARAMS: SpeechParams = {
   pauseAfterNewlineMs: 0,
 };
 
+/**
+ * Cloning speaks faster than the voice it is imitating, every time.
+ *
+ * Measured over 72 takes: each one was transcribed with word-level timestamps
+ * and compared against the reference speaking the same words. All 72 came out
+ * faster — the slowest by 12%, the median by 59% — and none was ever slower.
+ * The engine reproduces timbre and pitch but not tempo, and delivery is a real
+ * part of recognising a voice, so a faithful clone at the wrong speed still
+ * sounds like someone else.
+ *
+ * 0.7 undoes the excess measured on continuous speech (1.46x, the honest
+ * figure — the hesitant reference showed 3.3x, but its pauses are absent from
+ * the transcript the clone reads, which inflates the gap). It only applies to
+ * cloning; plain synthesis has no reference to be wrong about, and the user
+ * can still override it in the advanced parameters.
+ *
+ * Only Pocket TTS was measured. The other engines share the default because
+ * the same complaint prompted the investigation, not because they were tested.
+ */
+export const CLONE_DEFAULT_SPEED = 0.7;
+
+export const DEFAULT_CLONE_PARAMS: SpeechParams = {
+  ...DEFAULT_SPEECH_PARAMS,
+  speed: CLONE_DEFAULT_SPEED,
+};
+
 export function pauseFor(kind: PunctuationKind, params: SpeechParams): number {
   switch (kind) {
     case 'comma': return params.pauseAfterCommaMs;

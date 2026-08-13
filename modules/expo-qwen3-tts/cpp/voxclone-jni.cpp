@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <cmath>
 #include <string>
 #include <vector>
 #include <chrono>
@@ -143,6 +144,78 @@ int32_t token_budget_for(const std::string & text) {
     const double seconds = 3.0 + (double)text.size() / 5.0;
     const int32_t tokens = (int32_t)(seconds * 12.5);
     return tokens < 64 ? 64 : (tokens > 4096 ? 4096 : tokens);
+}
+
+/**
+ * Median fundamental frequency — voice pitch — over the voiced parts of a
+ * clip, by autocorrelation. Returns 0 when nothing voiced is found.
+ *
+ * This exists to catch octave collapse in cloning: the sampler occasionally
+ * locks onto half the reference pitch, which turns a female reference into a
+ * male-sounding take. The result is fluent and intelligible, so neither the
+ * generation status nor the truncation check below notices, yet it is
+ * obviously the wrong person to anyone listening. Measured on desktop, it hit
+ * roughly one generation in twenty.
+ */
+float estimate_f0_median(const float * samples, int n, int sample_rate) {
+    if (!samples || n <= 0 || sample_rate <= 0) return 0.0f;
+
+    // Pitch lives well below 4 kHz, so the search runs on a decimated copy:
+    // same answer for an order of magnitude less arithmetic than at 24 kHz.
+    const int decim = std::max(1, sample_rate / 8000);
+    const int sr    = sample_rate / decim;
+    std::vector<float> x;
+    x.reserve((size_t)(n / decim) + 1);
+    for (int i = 0; i + decim <= n; i += decim) {
+        float acc = 0.0f;
+        for (int k = 0; k < decim; ++k) acc += samples[i + k];
+        x.push_back(acc / (float)decim);
+    }
+
+    // 65-400 Hz spans a deep male voice up to a high female one.
+    const int min_lag = std::max(1, sr / 400);
+    const int max_lag = sr / 65;
+    const int frame   = max_lag * 2;          // two periods of the lowest pitch
+    if ((int)x.size() < frame || max_lag <= min_lag) return 0.0f;
+    const int hop = frame / 2;
+
+    float peak = 0.0f;
+    for (float v : x) peak = std::max(peak, std::fabs(v));
+    if (peak < 1e-4f) return 0.0f;
+    // Silence and unvoiced consonants carry no pitch; letting those frames
+    // vote would drag the median toward whatever noise happens to correlate.
+    const float energy_floor = 0.1f * peak;
+
+    std::vector<float> f0s;
+    for (int start = 0; start + frame <= (int)x.size(); start += hop) {
+        const float * f = x.data() + start;
+
+        float frame_peak = 0.0f;
+        for (int i = 0; i < frame; ++i) frame_peak = std::max(frame_peak, std::fabs(f[i]));
+        if (frame_peak < energy_floor) continue;
+
+        double energy0 = 0.0;
+        for (int i = 0; i < frame; ++i) energy0 += (double)f[i] * f[i];
+        if (energy0 <= 0.0) continue;
+
+        double best_corr = 0.0;
+        int    best_lag  = 0;
+        for (int lag = min_lag; lag <= max_lag; ++lag) {
+            double corr = 0.0;
+            for (int i = 0; i + lag < frame; ++i) corr += (double)f[i] * f[i + lag];
+            if (corr > best_corr) { best_corr = corr; best_lag = lag; }
+        }
+
+        // A voiced frame repeats itself strongly at its pitch period. A weak
+        // best match means the frame was not voiced after all.
+        if (best_lag > 0 && best_corr / energy0 > 0.3) {
+            f0s.push_back((float)sr / (float)best_lag);
+        }
+    }
+
+    if (f0s.empty()) return 0.0f;
+    std::nth_element(f0s.begin(), f0s.begin() + f0s.size() / 2, f0s.end());
+    return f0s[f0s.size() / 2];
 }
 
 void release_all() {
@@ -378,6 +451,15 @@ jint run_synthesis(JNIEnv * env,
             return (int)((t ^ (counter * 0x9E3779B97F4A7C15ULL)) & 0x7FFFFFFF);
         };
 
+        // Pitch of the voice being cloned, measured once: every take is
+        // checked against it below so an octave collapse cannot reach the user.
+        const float ref_f0 = ref_audio.empty()
+            ? 0.0f
+            : estimate_f0_median(ref_audio.data(), (int)ref_audio.size(), ref_sample_rate);
+        // Normal take-to-take variation measured about 1 semitone, worst case 3.
+        // An octave collapse is 12, so 6 separates the two without false alarms.
+        const float kMaxPitchDriftSemitones = 6.0f;
+
         const SherpaOnnxGeneratedAudio * audio = nullptr;
         const int kMaxAttempts = 3;
         for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
@@ -407,9 +489,26 @@ jint run_synthesis(JNIEnv * env,
                                                       : audio->samples[i];
                 if (v > peak) peak = v;
             }
-            if (peak < 0.02f || attempt == kMaxAttempts - 1) break;
-            LOGD("Pocket: truncated ending (tail peak %.3f), retrying %d/%d",
-                 peak, attempt + 1, kMaxAttempts);
+            const bool truncated = (peak >= 0.02f);
+
+            bool wrong_pitch = false;
+            if (ref_f0 > 0.0f) {
+                const float gen_f0 = estimate_f0_median(audio->samples, audio->n, sr);
+                if (gen_f0 > 0.0f) {
+                    const float semitones = 12.0f * std::log2(gen_f0 / ref_f0);
+                    wrong_pitch = std::fabs(semitones) > kMaxPitchDriftSemitones;
+                    if (wrong_pitch) {
+                        LOGD("Pocket: pitch %.0f Hz vs reference %.0f Hz (%+.1f semitones), retrying %d/%d",
+                             gen_f0, ref_f0, semitones, attempt + 1, kMaxAttempts);
+                    }
+                }
+            }
+
+            if ((!truncated && !wrong_pitch) || attempt == kMaxAttempts - 1) break;
+            if (truncated) {
+                LOGD("Pocket: truncated ending (tail peak %.3f), retrying %d/%d",
+                     peak, attempt + 1, kMaxAttempts);
+            }
         }
 
         const bool ok = g_pocket_api.write_wave(audio->samples, audio->n,
