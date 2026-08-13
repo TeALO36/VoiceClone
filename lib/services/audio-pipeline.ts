@@ -71,31 +71,26 @@ export const DEFAULT_SPEECH_PARAMS: SpeechParams = {
 };
 
 /**
- * Cloning speaks faster than the voice it is imitating, every time.
+ * Cloning does speak faster than the voice it imitates — do not "fix" it here.
  *
- * Measured over 72 takes: each one was transcribed with word-level timestamps
- * and compared against the reference speaking the same words. All 72 came out
- * faster — the slowest by 12%, the median by 59% — and none was ever slower.
- * The engine reproduces timbre and pitch but not tempo, and delivery is a real
- * part of recognising a voice, so a faithful clone at the wrong speed still
- * sounds like someone else.
+ * Measured over 72 takes, each transcribed with word-level timestamps and
+ * compared against the reference speaking the same words: all 72 came out
+ * faster, the slowest by 12%, the median by 59%, none ever slower. So the
+ * mismatch is real. A 0.7 default shipped in 4.3.17 to cancel it and was
+ * withdrawn in 4.3.18, because the cure is worse than the disease.
  *
- * 0.7 undoes the excess measured on continuous speech (1.46x, the honest
- * figure — the hesitant reference showed 3.3x, but its pauses are absent from
- * the transcript the clone reads, which inflates the gap). It only applies to
- * cloning; plain synthesis has no reference to be wrong about, and the user
- * can still override it in the advanced parameters.
+ * Running the SHIPPED timeStretch (not a reference implementation) over real
+ * takes shows what a 0.7 stretch costs:
+ *   pitch movement   -16%  — the contour is held across duplicated frames,
+ *                            which is heard as flat, mechanical delivery
+ *   onset sharpness  -15%  — consonant transients smear, so words are
+ *                            misheard as words that were never written
+ * It adds no noise (harmonic-to-noise ratio actually improves ~3 dB), but it
+ * stretches whatever noise is already there by 43%, making it more audible.
  *
- * Only Pocket TTS was measured. The other engines share the default because
- * the same complaint prompted the investigation, not because they were tested.
+ * Anyone tempted to try again: the tempo has to come from the engine, not from
+ * resampling its output. `speed` stays available for users who want it.
  */
-export const CLONE_DEFAULT_SPEED = 0.7;
-
-export const DEFAULT_CLONE_PARAMS: SpeechParams = {
-  ...DEFAULT_SPEECH_PARAMS,
-  speed: CLONE_DEFAULT_SPEED,
-};
-
 export function pauseFor(kind: PunctuationKind, params: SpeechParams): number {
   switch (kind) {
     case 'comma': return params.pauseAfterCommaMs;

@@ -61,7 +61,7 @@ const withPerVariantAbis: ConfigPlugin = (config) =>
 const config: ExpoConfig = {
   name: "VoiceClone",
   slug: "vox-clone-mobile",
-  version: "4.3.17",
+  version: "4.3.18",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: scheme,
@@ -75,7 +75,7 @@ const config: ExpoConfig = {
       }
   },
   android: {
-    versionCode: 20,
+    versionCode: 21,
     adaptiveIcon: {
       backgroundColor: "#6366F1",
       foregroundImage: "./assets/images/android-icon-foreground.png",
