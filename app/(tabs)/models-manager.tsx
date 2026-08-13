@@ -10,7 +10,7 @@ import { TTSModel, POCKET_VARIANTS } from '@/lib/services/models';
 export default function ModelsManagerScreen() {
   const colors = useColors();
   const router = useRouter();
-  const { installedModels, availableModels, downloadingModels, downloadModel, deleteModel, totalStorageUsed } = useTTS();
+  const { installedModels, availableModels, downloadingModels, downloadModel, deleteModel, totalStorageUsed, freeStorage } = useTTS();
   const [activeTab, setActiveTab] = useState<'installed' | 'available'>('available');
 
   // Pocket TTS variants are shown as a single grouped card with a language /
@@ -32,14 +32,29 @@ export default function ModelsManagerScreen() {
       return;
     }
 
-    const success = await downloadModel(modelId);
-    if (success) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      // Switch to installed tab to show the newly installed model
-      setActiveTab('installed');
-    } else {
+    // downloadModel REJECTS rather than returning false when it refuses the
+    // install outright — running out of storage being the usual reason. That
+    // rejection used to escape as an unhandled promise: the progress bar
+    // appeared for the few milliseconds before the context's `finally` cleared
+    // it, then the button simply offered the download again and said nothing
+    // about why it had not started. The Qwen3 models need 1.8 GB (0.6B) and
+    // 3.0 GB (1.7B) free, so they were the ones that kept failing in silence.
+    try {
+      const success = await downloadModel(modelId);
+      if (success) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        // Switch to installed tab to show the newly installed model
+        setActiveTab('installed');
+      } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Alert.alert('Erreur', 'Impossible de télécharger le modèle');
+      }
+    } catch (error: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Erreur', 'Impossible de télécharger le modèle');
+      Alert.alert(
+        'Téléchargement impossible',
+        error?.message || 'Impossible de télécharger le modèle'
+      );
     }
   };
 
@@ -172,13 +187,36 @@ export default function ModelsManagerScreen() {
               <Text className="text-sm font-semibold text-foreground">Stockage utilisé</Text>
               <Text className="text-sm font-semibold text-primary">{formatBytes(totalStorageUsed)}</Text>
             </View>
+            {/* Fill against the space actually available rather than an
+                invented 10 GB ceiling — an install is refused on free space,
+                so that is what the bar should be measuring against. */}
             <View className="h-2 bg-border rounded-full overflow-hidden">
               <View
                 className="h-full bg-primary"
-                style={{ width: `${Math.min((totalStorageUsed / (10 * 1024 * 1024 * 1024)) * 100, 100)}%` }}
+                style={{
+                  width: `${
+                    totalStorageUsed + freeStorage > 0
+                      ? Math.min((totalStorageUsed / (totalStorageUsed + freeStorage)) * 100, 100)
+                      : 0
+                  }%`,
+                }}
               />
             </View>
-            <Text className="text-xs text-muted mt-2">Max: 10 GB</Text>
+            {/* The largest model needs 3 GB free. Downloads are rejected before
+                they start when there is not enough room, so the figure has to
+                be visible here or a refusal looks like a bug. */}
+            <View className="flex-row justify-between items-center mt-2">
+              <Text className="text-xs text-muted">Espace libre</Text>
+              <Text
+                className={
+                  freeStorage < 2 * 1024 * 1024 * 1024
+                    ? 'text-xs font-semibold text-warning'
+                    : 'text-xs text-muted'
+                }
+              >
+                {formatBytes(freeStorage)}
+              </Text>
+            </View>
           </View>
         </View>
 
