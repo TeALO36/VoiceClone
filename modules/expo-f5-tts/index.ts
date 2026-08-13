@@ -25,14 +25,14 @@ export async function initModel(modelDir: string): Promise<void> {
  * @param refText What the reference clip actually says (improves alignment)
  * @param refWavPath 24 kHz mono WAV reference voice
  * @param speed Speech-speed scaling (1.0 = neutral)
- * @param quality 'fast' | 'balanced' | 'best'
+ * @param quality 'medium' | 'slow' | 'best'
  */
 export async function synthesize(
   text: string,
   refText: string = '',
   refWavPath: string,
   speed: number = 1.0,
-  quality: 'fast' | 'balanced' | 'best' = 'best'
+  quality: 'medium' | 'slow' | 'best' = 'best'
 ): Promise<F5TtsResult> {
   return ExpoF5TtsModule.synthesize(
     text, refText, refWavPath, speed, F5_QUALITY_STEPS[quality]

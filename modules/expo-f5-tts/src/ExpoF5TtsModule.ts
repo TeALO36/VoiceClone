@@ -8,11 +8,12 @@ export type { F5TtsResult } from './ExpoF5Tts.types';
 
 /**
  * F5-TTS flow-matching ODE steps, indexed by the same Quality presets used by
- * the other engines. 32 is the official reference configuration; 8 is fast but
- * audibly rougher (the flow is less converged). F5-TTS is a 335M model, so
- * each step is heavy on a phone — 'best' is recommended.
+ * the other engines. 32 is the official reference configuration; 16 is faster
+ * but audibly rougher (the flow is less converged) — the 8-step preset this
+ * used to include was rougher still, close to unusable. F5-TTS is a 335M
+ * model, so each step is heavy on a phone — 'best' is recommended.
  */
-export const F5_QUALITY_STEPS = { fast: 8, balanced: 16, best: 32 } as const;
+export const F5_QUALITY_STEPS = { medium: 16, slow: 22, best: 32 } as const;
 
 /**
  * `requireNativeModule` throws at import time when the platform has no native

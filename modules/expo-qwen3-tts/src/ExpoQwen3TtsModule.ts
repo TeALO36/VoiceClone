@@ -13,26 +13,25 @@ export type { TtsEngine, PreparedReference, Qwen3TtsResult } from './ExpoQwen3Tt
 /**
  * MaskGIT decode steps for the OmniVoice engine. Generation time scales
  * linearly with this — cloning 1.8 s of speech on a desktop CPU took 68 s at
- * 32 steps, 35 s at 16, 17 s at 8.
+ * 32 steps, ~45 s at 22, 35 s at 16.
  *
- * Tempting as the low end is, 32 is the reference configuration and the default
- * here. Shipping 8 as the default produced speech that did not sound like the
- * requested language at all: too few steps leaves the MaskGIT sampler
- * under-converged and the output is closer to babble than to words. Speed is
- * worth nothing if the audio is unusable — reach for the faster presets
- * deliberately, or use Qwen3-TTS / Pocket TTS, which are faster without this
- * trade-off.
+ * 32 is the reference configuration and the default here. The 8-step preset
+ * this used to include is gone: too few steps leaves the MaskGIT sampler
+ * under-converged, and on top of not sounding like the requested language,
+ * the result comes out audibly sped-up. 16 stays as the fast end because it
+ * is still usable — reach for it deliberately, or use Qwen3-TTS / Pocket TTS,
+ * which are faster without this trade-off.
  */
-export const QUALITY_STEPS = { fast: 8, balanced: 16, best: 32 } as const;
+export const QUALITY_STEPS = { medium: 16, slow: 22, best: 32 } as const;
 export type Quality = keyof typeof QUALITY_STEPS;
 
 /**
  * Pocket TTS flow-matching steps, indexed by the same Quality presets used by
- * the other engines. The sherpa-onnx runtime defaults to 5 flow steps; 1 is the
- * official CLI's fast default and already intelligible because Pocket TTS is a
- * small model with a short flow. The steps are mapped in the native layer.
+ * the other engines. The sherpa-onnx runtime defaults to 5 flow steps; 2 is
+ * already intelligible because Pocket TTS is a small model with a short flow.
+ * The steps are mapped in the native layer.
  */
-export const POCKET_QUALITY_STEPS = { fast: 1, balanced: 2, best: 4 } as const;
+export const POCKET_QUALITY_STEPS = { medium: 2, slow: 3, best: 4 } as const;
 
 /**
  * `requireNativeModule` throws at import time when the platform has no native

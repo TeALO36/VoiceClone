@@ -13,6 +13,13 @@ interface AdvancedParamsEditorProps {
   /** Defaults to collapsed so the advanced section does not dominate the
    *  screen. Pass true to open it initially (e.g. when editing a profile). */
   initiallyExpanded?: boolean;
+  /**
+   * What this screen considers untouched. Cloning starts below 1x speed to
+   * offset the engine's tempo drift, so without this the "Naturel" preset
+   * would quietly undo that correction and the header would report the
+   * screen's own default as a user customisation.
+   */
+  baseline?: SpeechParams;
 }
 
 interface StepSpec {
@@ -114,10 +121,13 @@ function formatMs(v: number): string {
   return v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${v} ms`;
 }
 
-const PRESETS: { label: string; apply: (params: SpeechParams) => SpeechParams }[] = [
+const PRESETS: {
+  label: string;
+  apply: (params: SpeechParams, baseline: SpeechParams) => SpeechParams;
+}[] = [
   {
     label: 'Naturel',
-    apply: () => ({ ...DEFAULT_SPEECH_PARAMS }),
+    apply: (_p, baseline) => ({ ...baseline }),
   },
   {
     label: 'Lecture posée',
@@ -160,6 +170,7 @@ export function AdvancedParamsEditor({
   params,
   onChange,
   initiallyExpanded = false,
+  baseline = DEFAULT_SPEECH_PARAMS,
 }: AdvancedParamsEditorProps) {
   const colors = useColors();
   const [expanded, setExpanded] = useState(initiallyExpanded);
@@ -174,7 +185,7 @@ export function AdvancedParamsEditor({
   // Summary shown while collapsed: which parameters differ from the defaults,
   // so a saved profile's tuning is visible without expanding the section.
   const activeCount = STEP_SPECS.filter(
-    (spec) => params[spec.key] !== DEFAULT_SPEECH_PARAMS[spec.key]
+    (spec) => params[spec.key] !== baseline[spec.key]
   ).length;
   const summary = activeCount === 0
     ? 'Réglages par défaut'
@@ -215,7 +226,7 @@ export function AdvancedParamsEditor({
             key={preset.label}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onChange(preset.apply(params));
+              onChange(preset.apply(params, baseline));
             }}
             style={({ pressed }) => [
               {
