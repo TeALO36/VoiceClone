@@ -25,8 +25,16 @@ object AudioConverter {
     /** Reference clips beyond this are trimmed: cloning needs seconds, not minutes. */
     private const val MAX_SECONDS = 30
 
-    /** Below this there is not enough voice to characterise a speaker. */
-    private const val MIN_SECONDS = 0.5
+    /**
+     * Below this there is not enough voice to characterise a speaker.
+     *
+     * Was 0.5 while the rejection message promised 3 seconds, so a clip six
+     * times shorter than the stated minimum was accepted without comment. A
+     * reference that brief carries almost no speaker evidence and the model
+     * falls back on its prior, which reaches the user as "the clone sounds
+     * nothing like me" with nothing on screen explaining why.
+     */
+    private const val MIN_SECONDS = 3.0
 
     private const val TIMEOUT_US = 10_000L
 

@@ -140,7 +140,7 @@ export default function ProfilesScreen() {
         });
       }
       // Classic TTS: resolve the preset voice for this engine.
-      const preset = resolvePresetVoice(activeModel.type, presetVoice, modelDir);
+      const preset = resolvePresetVoice(activeModel.type, presetVoice, modelDir, activeModel.langId);
       return ttsEngine.synthesize({
         text: spoken,
         modelDir,

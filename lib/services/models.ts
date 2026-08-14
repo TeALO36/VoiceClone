@@ -287,8 +287,13 @@ function pocketLangFiles(base: string, lang: string, fp32 = false) {
     { name: 'text_conditioner.onnx', url: `${base}/${dir}/text_conditioner.onnx`, expectedSize: shared.textConditioner },
     { name: 'vocab.json', url: `${base}/${dir}/vocab.json`, expectedSize: s.vocab },
     { name: 'token_scores.json', url: `${base}/${dir}/token_scores.json`, expectedSize: s.scores },
+    // ONE bundled voice, downloaded once. Every multilingual package ships a
+    // single <lang>/default.wav upstream — there is no second clip to fetch.
+    // This used to pull that same file twice, as bria.wav and loona.wav, so
+    // the six voice presets all resolved to byte-identical audio and the
+    // picker offered six labels for one voice. Kept under the bria.wav name
+    // so installs made before this fix keep resolving.
     { name: 'voices/bria.wav', url: `${base}/${dir}/default.wav`, expectedSize: s.voice },
-    { name: 'voices/loona.wav', url: `${base}/${dir}/default.wav`, expectedSize: s.voice },
   ];
 }
 
@@ -300,7 +305,7 @@ function pocketLangSize(lang: string, fp32 = false): number {
   return (
     shared.lmFlow + s.lmMain + shared.encoder +
     shared.decoder + shared.textConditioner +
-    s.vocab + s.scores + s.voice + s.voice
+    s.vocab + s.scores + s.voice
   );
 }
 

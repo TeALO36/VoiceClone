@@ -11,6 +11,7 @@ import {
   VOICE_PRESETS,
   getLanguagesForModel,
   resolvePresetVoice,
+  pocketHasPresetVoices,
   OMNIVOICE_STYLE_CHIPS,
   validateOmniVoiceInstruct,
 } from '@/lib/services/local-tts';
@@ -106,7 +107,7 @@ export default function SynthesisScreen() {
         });
       }
 
-      const preset = resolvePresetVoice(model.type, presetId, modelDir);
+      const preset = resolvePresetVoice(model.type, presetId, modelDir, model.langId);
       // A typed OmniVoice style description overrides the preset's built-in
       // instruct string (it is validated in JS against the voice-design
       // vocabulary; a free-style instruction is not silently sent).
@@ -233,6 +234,11 @@ export default function SynthesisScreen() {
               <Text className="text-xs text-muted">
                 F5-TTS utilise la voix de l&apos;échantillon de référence (profil de voix
                 ou voix par défaut fournie avec le modèle).
+              </Text>
+            ) : !pocketHasPresetVoices(activeModel?.type ?? 'pocket', activeModel?.langId) ? (
+              <Text className="text-xs text-muted">
+                Ce modèle Pocket TTS est fourni avec une seule voix. Pour une autre
+                voix, enregistrez un profil depuis l&apos;onglet Clonage.
               </Text>
             ) : (
               <FlatList
