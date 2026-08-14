@@ -145,12 +145,18 @@ export function GenerationQueue({ kind, showProfileFilter }: { kind: GenerationK
                   <Text className="text-xs text-muted mt-1">👤 {job.voiceName}</Text>
                 )}
 
-                <View className="flex-row items-center mt-2">
+                <View className="flex-row items-start mt-2">
                   {job.status === 'running' && (
                     <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 8 }} />
                   )}
+                  {/* A failure message is the only evidence of what went wrong,
+                      and a native rejection carries its real cause after a
+                      « Caused by: » that a single clipped line hides. It gets
+                      the full width, every line, and stays selectable so it can
+                      be copied into a bug report. */}
                   <Text
-                    className="text-xs"
+                    className="text-xs flex-1"
+                    selectable={job.status === 'error'}
                     style={{
                       color:
                         job.status === 'error'
