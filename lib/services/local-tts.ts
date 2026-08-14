@@ -223,7 +223,14 @@ export function validateOmniVoiceInstruct(
   return { ok: unsupported.length === 0, unsupported };
 }
 
-/** Bundled reference voices shipped with the Pocket TTS model. */
+/**
+ * Bundled reference voices shipped with the ENGLISH Pocket TTS package, the
+ * only one that has two of them (bria and loona are distinct clips in the
+ * sherpa-onnx release).
+ *
+ * Every multilingual package ships a single <lang>/default.wav, so its presets
+ * cannot differ however they are labelled — see pocketHasPresetVoices below.
+ */
 const POCKET_PRESET_FILES: Record<string, string> = {
   'female-neutral': 'voices/bria.wav',
   'female-bright': 'voices/loona.wav',
@@ -234,20 +241,40 @@ const POCKET_PRESET_FILES: Record<string, string> = {
 };
 
 /**
+ * Whether picking a preset can actually change how the output sounds.
+ *
+ * False means the screen must not offer a list of them: OmniVoice steers on an
+ * instruct string, the English Pocket package has two bundled clips, and
+ * everything else has exactly one voice or derives it elsewhere. Offering six
+ * labels that resolve to the same audio is what made cloning look broken.
+ */
+export function pocketHasPresetVoices(engine: TtsEngine, langId?: string): boolean {
+  if (engine === 'omnivoice') return true;
+  if (engine === 'pocket') return langId === 'en';
+  return false;
+}
+
+/**
  * Resolve what a voice preset means for the active engine.
  * Returns null when the engine cannot express the preset (Qwen3-TTS).
  */
 export function resolvePresetVoice(
   engine: TtsEngine,
   presetId: string,
-  modelDir: string
+  modelDir: string,
+  langId?: string
 ): { referenceAudioUri?: string; instruct?: string } | null {
   if (engine === 'omnivoice') {
     const instruct = OMNIVOICE_INSTRUCT[presetId];
     return instruct ? { instruct } : null;
   }
   if (engine === 'pocket') {
-    const file = POCKET_PRESET_FILES[presetId];
+    // Multilingual packages have one bundled voice, and no longer ship a
+    // loona.wav at all — resolving a preset to it would point at a missing
+    // file. Every preset maps to the single voice these packages do have.
+    const file = pocketHasPresetVoices(engine, langId)
+      ? POCKET_PRESET_FILES[presetId]
+      : 'voices/bria.wav';
     if (!file) return null;
     return { referenceAudioUri: `${modelDir}/${file}` };
   }
