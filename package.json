@@ -7,7 +7,7 @@
     "dev": "cross-env EXPO_USE_METRO_WORKSPACE_ROOT=1 npx expo start --web --port ${EXPO_PORT:-8081} --host 0.0.0.0",
     "web:build": "npx expo export --platform web",
     "check": "tsc --noEmit",
-    "test": "node scripts/test-audio-pipeline.js && node scripts/test-updates.js",
+    "test": "node scripts/test-audio-pipeline.js && node scripts/test-updates.js && node scripts/test-engine-wiring.js",
     "lint": "expo lint",
     "format": "prettier --write .",
     "android": "expo run:android",

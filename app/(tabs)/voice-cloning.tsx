@@ -291,28 +291,6 @@ export default function VoiceCloningScreen() {
           </View>
         )}
 
-        {/* Reference transcript — OmniVoice / F5-TTS */}
-        {picker.isReady && usesRefText && (
-          <View className="px-6 mb-6">
-            <Text className="text-sm font-semibold text-foreground mb-1">
-              Que dit l&apos;extrait ? <Text className="text-muted font-normal">(facultatif)</Text>
-            </Text>
-            <Text className="text-xs text-muted mb-3">
-              Recopier ce qui est prononcé donne au moteur un repère de plus et améliore la ressemblance.
-              {activeModel?.type === 'f5' && ' Obligatoire pour F5-TTS : sans transcription, la qualité du clonage chute.'}
-            </Text>
-            <TextInput
-              value={refText}
-              onChangeText={setRefText}
-              placeholder="Ex : Bonjour, je teste ma voix."
-              placeholderTextColor={colors.muted}
-              multiline
-              className="bg-surface border border-border rounded-lg p-4 text-foreground"
-              style={{ textAlignVertical: 'top', minHeight: 70 }}
-            />
-          </View>
-        )}
-
         {/* Quality — OmniVoice only */}
         {picker.isReady && usesRefText && (
           <View className="px-6 mb-6">
@@ -355,6 +333,34 @@ export default function VoiceCloningScreen() {
         {picker.isReady && (
           <View className="px-6 mb-6">
             <View className="bg-surface border border-border rounded-2xl px-4 py-3">
+              {/* The reference transcript lives here rather than in the main
+                  flow: it applies to two engines out of four, and on the two
+                  that ignore it a prominent field only invites filling in
+                  something that will not be read. */}
+              {usesRefText && (
+                <View className="mb-4">
+                  <Text className="text-sm font-semibold text-foreground mb-1">
+                    Que dit l&apos;extrait ?{' '}
+                    <Text className="text-muted font-normal">
+                      {activeModel?.type === 'f5' ? '(recommandé)' : '(facultatif)'}
+                    </Text>
+                  </Text>
+                  <Text className="text-xs text-muted mb-3">
+                    Recopier ce qui est prononcé donne au moteur un repère de plus et améliore la ressemblance.
+                    {activeModel?.type === 'f5' &&
+                      ' F5-TTS aligne l’audio sur ce texte : sans lui, la ressemblance chute.'}
+                  </Text>
+                  <TextInput
+                    value={refText}
+                    onChangeText={setRefText}
+                    placeholder="Ex : Bonjour, je teste ma voix."
+                    placeholderTextColor={colors.muted}
+                    multiline
+                    className="bg-background border border-border rounded-lg p-3 text-foreground"
+                    style={{ textAlignVertical: 'top', minHeight: 70 }}
+                  />
+                </View>
+              )}
               <AdvancedParamsEditor params={params} onChange={setParams} />
             </View>
           </View>
