@@ -291,8 +291,11 @@ export default function VoiceCloningScreen() {
           </View>
         )}
 
-        {/* Quality — OmniVoice only */}
-        {picker.isReady && usesRefText && (
+        {/* Quality — OmniVoice only. F5-TTS is excluded on purpose: its graph
+            bakes in a fixed 31-transition schedule, so a lower tier would not
+            take bigger steps, it would stop the solver partway and return an
+            unfinished mel. There is no trade-off to expose. */}
+        {picker.isReady && activeModel?.type === 'omnivoice' && (
           <View className="px-6 mb-6">
             <Text className="text-sm font-semibold text-foreground mb-3">Qualité</Text>
             <View className="flex-row gap-2">
@@ -322,9 +325,8 @@ export default function VoiceCloningScreen() {
               })}
             </View>
             <Text className="text-xs text-muted mt-2">
-              {activeModel?.type === 'f5'
-                ? 'F5-TTS est un moteur de 335M : comptez plusieurs dizaines de secondes par phrase sur mobile.'
-                : 'La génération est lourde : comptez plusieurs dizaines de secondes par phrase. Pocket TTS est beaucoup plus rapide.'}
+              La génération est lourde : comptez plusieurs dizaines de secondes par phrase.
+              Pocket TTS est beaucoup plus rapide.
             </Text>
           </View>
         )}

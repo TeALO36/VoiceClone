@@ -7,13 +7,28 @@ import type { F5TtsResult } from './ExpoF5Tts.types';
 export type { F5TtsResult } from './ExpoF5Tts.types';
 
 /**
- * F5-TTS flow-matching ODE steps, indexed by the same Quality presets used by
- * the other engines. 32 is the official reference configuration; 16 is faster
- * but audibly rougher (the flow is less converged) — the 8-step preset this
- * used to include was rougher still, close to unusable. F5-TTS is a 335M
- * model, so each step is heavy on a phone — 'best' is recommended.
+ * F5-TTS runs a FIXED 32-step schedule. There is no quality trade-off to make.
+ *
+ * The exported graph bakes its timestep schedule in as a constant: inspecting
+ * F5_Transformer.int8.onnx shows the Gather that consumes `time_step.1` reading
+ * from a 31-element table, and the graph returns an incrementing counter rather
+ * than accepting a time value. So the solver is not "32 steps by default, fewer
+ * if you want speed" — it is 31 transitions, in order, and the app's only
+ * choice is how many of them to run.
+ *
+ * Stopping early does NOT take larger steps. It abandons the ODE partway, at an
+ * intermediate t, and returns a mel that was never fully denoised. The 16- and
+ * 22-step presets that used to sit here were therefore not "faster and rougher"
+ * — they were incomplete, which is a different and much worse thing. All tiers
+ * now map to the full schedule; the UI stops offering a choice that the graph
+ * cannot honour.
  */
-export const F5_QUALITY_STEPS = { medium: 16, slow: 22, best: 32 } as const;
+export const F5_NFE_STEPS = 32;
+export const F5_QUALITY_STEPS = {
+  medium: F5_NFE_STEPS,
+  slow: F5_NFE_STEPS,
+  best: F5_NFE_STEPS,
+} as const;
 
 /**
  * `requireNativeModule` throws at import time when the platform has no native
