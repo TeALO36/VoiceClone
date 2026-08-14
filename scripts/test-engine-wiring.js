@@ -262,6 +262,21 @@ check(
   `min=${Math.min(...Object.values(qwen3Mod.POCKET_QUALITY_STEPS))}`
 );
 
+// F5's exported graph indexes a 31-element timestep table with a counter it
+// increments itself, so the schedule is fixed: running fewer iterations stops
+// the ODE partway and returns a mel that was never denoised to the end. Every
+// tier must therefore ask for the full 32.
+check(
+  Object.values(f5Mod.F5_QUALITY_STEPS).every((v) => v === f5Mod.F5_NFE_STEPS),
+  `F5_QUALITY_STEPS : tous les paliers valent ${f5Mod.F5_NFE_STEPS} (calendrier figé dans le graphe)`,
+  JSON.stringify(f5Mod.F5_QUALITY_STEPS)
+);
+check(
+  f5Mod.F5_NFE_STEPS === 32,
+  'F5_NFE_STEPS vaut 32 — la table du graphe compte 31 transitions',
+  `vaut ${f5Mod.F5_NFE_STEPS}`
+);
+
 console.log('\n' + '─'.repeat(60));
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) {
